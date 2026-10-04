@@ -1,26 +1,37 @@
 @import "tailwindcss";
 
+/* Each token holds both palettes; color-scheme picks one. With no data-theme
+   the browser follows the system. A data-theme on <html> pins it, which beats
+   the system preference because it's the same property, not a media query. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light dark;
+  --bg: light-dark(#fbfbfb, #0c0c0d);
+  --surface: light-dark(#ffffff, #151517);
+  --fg: light-dark(#1a1a1c, #e6e6e8);
+  --muted: light-dark(#6b6b72, #8d8d95);
+  --border: light-dark(#e3e3e6, #26262a);
+  --accent: light-dark(#2563eb, #4d8bf5);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
 }

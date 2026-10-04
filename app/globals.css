@@ -11,6 +11,16 @@
   --muted: light-dark(#6b6b72, #8d8d95);
   --border: light-dark(#e3e3e6, #26262a);
   --accent: light-dark(#2563eb, #4d8bf5);
+  /* Direction: into a selection, out of it. Edges are grey until then. */
+  --incoming: light-dark(#15803d, #4ade80);
+  --outgoing: light-dark(#b45309, #fbbf24);
+  --edge: light-dark(#a1a1aa, #52525b);
+  /* File kinds. Kept clear of the accent blue and of green and amber, which
+     are reserved for direction. */
+  --kind-1: light-dark(#7c3aed, #a78bfa);
+  --kind-2: light-dark(#db2777, #f472b6);
+  --kind-3: light-dark(#0891b2, #22d3ee);
+  --kind-4: light-dark(#78716c, #a8a29e);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -26,6 +36,8 @@
   --color-muted: var(--muted);
   --color-border: var(--border);
   --color-accent: var(--accent);
+  --color-incoming: var(--incoming);
+  --color-outgoing: var(--outgoing);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

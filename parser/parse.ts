@@ -26,8 +26,13 @@ type RawImport = { specifier: string; kind: EdgeKind; line: number; literal: boo
 type Parsed = { path: string; lines: number; hash: string; imports: RawImport[] };
 type Skipped = Coverage["files"]["skipped"][number];
 
+/** Normalize path separators to forward slashes for stored paths and comparisons. */
 const posix = (p: string) => p.replaceAll("\\", "/");
 
+/**
+ * Parse a local repository into file nodes, resolved import edges, and coverage counts.
+ * Unreadable or invalid source files are recorded as skipped; root and directory traversal errors propagate.
+ */
 export function parseRepository(dir: string, adapter: FrameworkAdapter = fallbackAdapter): ParseResult {
   // realpath gives canonical casing, so paths TypeScript hands back compare equal to ours.
   const root = posix(realpathSync.native(path.resolve(dir)));
@@ -96,14 +101,17 @@ export function parseRepository(dir: string, adapter: FrameworkAdapter = fallbac
   };
 }
 
-// Keep whole directories: every source file outside ignored directories is a
-// candidate. Never selects by size, so an imported leaf can't be dropped while
-// its importer is kept.
+/**
+ * Keep whole directories: every source file outside ignored directories is a
+ * candidate. Never selects by size, so an imported leaf can't be dropped while
+ * its importer is kept.
+ */
 function walk(root: string, adapter: FrameworkAdapter) {
   const files: string[] = [];
   const skipped: Skipped[] = [];
   const ignored: Coverage["ignoredDirectories"] = [];
 
+  /** Visit a repository-relative directory, collecting source files and recording skips and ignored directories. */
   const visit = (rel: string) => {
     for (const entry of readdirSync(rel ? `${root}/${rel}` : root, { withFileTypes: true })) {
       const p = rel ? `${rel}/${entry.name}` : entry.name;
@@ -128,6 +136,7 @@ function walk(root: string, adapter: FrameworkAdapter) {
   return { files, skipped, ignored };
 }
 
+/** Return why a directory should be excluded, or null when it should be traversed. */
 function ignoreReason(name: string, adapter: FrameworkAdapter): string | null {
   if (name === "node_modules") return "installed dependencies";
   if (name.startsWith(".")) return "hidden directory";
@@ -136,6 +145,7 @@ function ignoreReason(name: string, adapter: FrameworkAdapter): string | null {
   return null;
 }
 
+/** Check whether a path resolves to a directory, returning false when stat fails. */
 function isDirectory(p: string): boolean {
   try {
     return statSync(p).isDirectory();
@@ -144,6 +154,10 @@ function isDirectory(p: string): boolean {
   }
 }
 
+/**
+ * Read and parse one source file, returning imports and metadata or a skip reason.
+ * The temporary source file is removed from the project after inspection.
+ */
 function parseFile(project: Project, root: string, rel: string): Parsed | Skipped {
   // A file that vanished or can't be opened since the walk is one skip, not a failed parse.
   let bytes: Buffer;
@@ -193,8 +207,13 @@ function parseFile(project: Project, root: string, rel: string): Parsed | Skippe
   }
 }
 
-// parseDiagnostics isn't in TypeScript's public types. The public alternative
-// is building a Program per file, which also loads every dependency's types.
+/**
+ * Return the first syntax diagnostic with its line number, or null for valid syntax.
+ * Throws if TypeScript no longer exposes the diagnostic array.
+ *
+ * parseDiagnostics isn't in TypeScript's public types. The public alternative
+ * is building a Program per file, which also loads every dependency's types.
+ */
 function firstSyntaxError(sf: ts.SourceFile): string | null {
   const diagnostics: unknown = Reflect.get(sf, "parseDiagnostics");
   if (!Array.isArray(diagnostics)) throw new Error("TypeScript no longer exposes parseDiagnostics; syntax errors can't be detected");
@@ -211,14 +230,20 @@ function firstSyntaxError(sf: ts.SourceFile): string | null {
 
 type Config = { dir: string; options: ts.CompilerOptions; cache: ts.ModuleResolutionCache; fileNames: Set<string>; references: string[] };
 
+/**
+ * Create an import resolver with cached project settings and dependency declarations.
+ * Resolved paths are classified against parsed files, skipped files, and ignored directories.
+ */
 function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, ignoredDirs: string[]) {
   const configs = new Map<string, Config>();
   const nearestConfigByDir = new Map<string, string | null>();
   const depsByDir = new Map<string, Record<string, string>>();
   const fallback = makeConfig(root, defaultOptions(), new Set(), []);
 
+  /** Test whether an absolute normalized path is the repository root or lies beneath it. */
   const inRoot = (abs: string) => abs === root || abs.startsWith(`${root}/`);
 
+  /** Load and cache TypeScript settings, included files, and project references, retaining recoverable options. */
   function loadConfig(file: string): Config {
     const cached = configs.get(file);
     if (cached) return cached;
@@ -238,6 +263,7 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return loaded;
   }
 
+  /** Find and cache the closest tsconfig or jsconfig at or above a directory, stopping at the repository root. */
   function nearestConfig(dir: string): string | null {
     if (nearestConfigByDir.has(dir)) return nearestConfigByDir.get(dir)!;
     let found: string | null = null;
@@ -252,8 +278,10 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return found;
   }
 
-  // Solution-style configs (a tsconfig that only lists references) keep their
-  // aliases in the referenced config that actually includes the file.
+  /**
+   * Solution-style configs (a tsconfig that only lists references) keep their
+   * aliases in the referenced config that actually includes the file.
+   */
   function configFor(file: string): Config {
     const nearest = nearestConfig(path.posix.dirname(file));
     if (!nearest) return fallback;
@@ -267,6 +295,7 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return config;
   }
 
+  /** Classify a resolved path against the repository boundary and available runtime source files. */
   function classifyFile(abs: string): Resolution {
     // Native path functions: on Windows a posix-style "C:/..." path is not absolute to path.posix.
     let rel = posix(path.relative(root, abs));
@@ -282,6 +311,7 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return { status: "excluded", target: rel, reason: "not-source" };
   }
 
+  /** Find a parsed JavaScript sibling for a declaration path, or return null. */
   function runtimeSibling(rel: string): string | null {
     const match = /\.d\.([mc]?)ts$/.exec(rel);
     if (!match) return null;
@@ -290,6 +320,7 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return candidates.map((ext) => base + ext).find((c) => nodes.has(c)) ?? null;
   }
 
+  /** Check ancestor manifests for the first declaration of a package, excluding workspace dependencies. */
   function declaredDependency(name: string, fromDir: string): boolean {
     for (let dir = fromDir; inRoot(dir); dir = path.posix.dirname(dir)) {
       const version = dependencies(dir)[name];
@@ -301,6 +332,7 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return false;
   }
 
+  /** Cache string-valued dependencies from a directory's manifest; unreadable or invalid JSON declares none. */
   function dependencies(dir: string): Record<string, string> {
     const cached = depsByDir.get(dir);
     if (cached) return cached;
@@ -319,6 +351,7 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
     return deps;
   }
 
+  /** Resolve an import from an absolute source path and classify code, assets, packages, or resolution failures. */
   function resolve(specifier: string, fromFile: string): Resolution {
     const config = configFor(fromFile);
     const resolved = ts.resolveModuleName(specifier, fromFile, config.options, ts.sys, config.cache).resolvedModule;
@@ -346,8 +379,10 @@ function createResolver(root: string, nodes: Set<string>, skipped: Set<string>, 
   return { resolve };
 }
 
-// Candidate files for a specifier matching a tsconfig `paths` pattern, or
-// null when no pattern matches.
+/**
+ * Candidate files for a specifier matching a tsconfig `paths` pattern, or
+ * null when no pattern matches.
+ */
 function aliasTargets(specifier: string, config: Config): string[] | null {
   const paths = config.options.paths;
   if (!paths) return null;
@@ -368,6 +403,7 @@ function aliasTargets(specifier: string, config: Config): string[] | null {
   return null;
 }
 
+/** Check whether a path resolves to a file, returning false when stat fails. */
 function isFile(p: string): boolean {
   try {
     return statSync(p).isFile();
@@ -376,13 +412,16 @@ function isFile(p: string): boolean {
   }
 }
 
+/** Return fallback compiler options for repositories without a project configuration. */
 function defaultOptions(): ts.CompilerOptions {
   return withResolutionDefaults({ module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.Preserve });
 }
 
-// The resolver has to find .js and .json files whatever the project's own
-// settings, and Classic resolution (an old default) never looks in
-// node_modules or at index files, so it's replaced with Bundler.
+/**
+ * The resolver has to find .js and .json files whatever the project's own
+ * settings, and Classic resolution (an old default) never looks in
+ * node_modules or at index files, so it's replaced with Bundler.
+ */
 function withResolutionDefaults(options: ts.CompilerOptions): ts.CompilerOptions {
   const nodeModule = [ts.ModuleKind.Node16, ts.ModuleKind.Node18, ts.ModuleKind.Node20, ts.ModuleKind.NodeNext];
   const classic =
@@ -396,6 +435,7 @@ function withResolutionDefaults(options: ts.CompilerOptions): ts.CompilerOptions
   };
 }
 
+/** Bundle project settings and file membership with a fresh TypeScript resolution cache. */
 function makeConfig(dir: string, options: ts.CompilerOptions, fileNames: Set<string>, references: string[]): Config {
   const cache = ts.createModuleResolutionCache(dir, (s) => s, options);
   return { dir, options, cache, fileNames, references };

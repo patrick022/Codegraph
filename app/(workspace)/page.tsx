@@ -7,6 +7,7 @@ type Status = Enums<"analysis_status">;
 const LIST_LIMIT = 100;
 const STATUS_ORDER: Status[] = ["parsing", "queued", "complete", "failed"];
 
+/** Render the active organization's recent analyses, status counts, and relative timestamps. */
 export default async function DashboardPage() {
   // Read off the token, never fetched from Clerk.
   const { orgId, sessionClaims } = await auth();
@@ -111,8 +112,10 @@ export default async function DashboardPage() {
   );
 }
 
-// No organization filter: the row policy scopes this to the organization on
-// the token. Switching organization changes the token, not this query.
+/**
+ * No organization filter: the row policy scopes this to the organization on
+ * the token. Switching organization changes the token, not this query.
+ */
 async function loadAnalyses() {
   const { data, error } = await supabase()
     .from("analyses")
@@ -124,8 +127,10 @@ async function loadAnalyses() {
   return { rows: data, now: Date.now() };
 }
 
-// Relative rather than a clock time: the server doesn't know the viewer's
-// timezone, and "3h ago" is right everywhere. Exact time is in the title.
+/**
+ * Relative rather than a clock time: the server doesn't know the viewer's
+ * timezone, and "3h ago" is right everywhere. Exact time is in the title.
+ */
 function ago(iso: string, now: number): string {
   const seconds = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
@@ -136,9 +141,11 @@ function ago(iso: string, now: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-// State is carried by shape, not hue: green, amber and blue already mean
-// direction and interaction, so status stays greyscale. Empty ring queued,
-// half parsing, full complete, crossed out failed.
+/**
+ * State is carried by shape, not hue: green, amber and blue already mean
+ * direction and interaction, so status stays greyscale. Empty ring queued,
+ * half parsing, full complete, crossed out failed.
+ */
 function StateMark({ status }: { status: Status }) {
   return (
     <svg viewBox="0 0 10 10" className="size-2.5 shrink-0" aria-hidden="true">

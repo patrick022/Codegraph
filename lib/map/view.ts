@@ -35,22 +35,27 @@ export type Endpoint = { object: string; handle: string | null };
 export type MapEdge = { id: string; source: string; sourceHandle: string | null; target: string; targetHandle: string | null };
 export type MapView = { objects: MapObject[]; edges: MapEdge[]; endpointOf: ReadonlyMap<string, Endpoint> };
 
+/** Build the stable canvas object identifier for a directory. */
 export function groupId(dir: string): string {
   return `dir:${dir}`;
 }
 
-// A file's category is its extension: a fact read off the path, not a guess
-// about what the file does.
+/**
+ * A file's category is its extension: a fact read off the path, not a guess
+ * about what the file does.
+ */
 export function categoryOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
   return dot <= 0 ? "(none)" : name.slice(dot + 1);
 }
 
+/** Format an extension for display, preserving the marker for files without one. */
 export function categoryLabel(category: string): string {
   return category === "(none)" ? category : `.${category}`;
 }
 
+/** Count paths by extension, sorting by descending count and then category name. */
 export function countByCategory(paths: readonly string[]): { category: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const p of paths) counts.set(categoryOf(p), (counts.get(categoryOf(p)) ?? 0) + 1);
@@ -59,7 +64,7 @@ export function countByCategory(paths: readonly string[]): { category: string; c
     .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
 }
 
-// The shortest trailing run of path segments no other path on screen shares.
+/** The shortest trailing run of path segments no other path on screen shares. */
 export function shortestUniqueLabels(paths: readonly string[]): Map<string, string> {
   const split = paths.map((p) => [p, p.split("/")] as const);
   const labels = new Map<string, string>();
@@ -74,15 +79,21 @@ export function shortestUniqueLabels(paths: readonly string[]): Map<string, stri
   return labels;
 }
 
-// Most depended-on files first, so an unscrolled panel shows the ones that matter.
+/** Most depended-on files first, so an unscrolled panel shows the ones that matter. */
 export function rankFiles(paths: readonly string[], byPath: ReadonlyMap<string, FileNode>): string[] {
   return [...paths].sort((a, b) => (byPath.get(b)?.fanIn ?? 0) - (byPath.get(a)?.fanIn ?? 0) || a.localeCompare(b));
 }
 
+/** Round and clamp a requested row offset so the panel window stays within the file list. */
 export function clampOffset(requested: number, count: number): number {
   return Math.max(0, Math.min(Math.round(requested), count - MAX_ROWS));
 }
 
+/**
+ * Derive folded objects, open panel rows, and merged edges from file-level graph data.
+ * Offscreen files share boundary handles; edges within one object are omitted.
+ * Throws when an edge endpoint is missing from the folding.
+ */
 export function buildView(
   files: readonly FileNode[],
   edges: readonly Edge[],
@@ -164,8 +175,10 @@ export function buildView(
   return { objects, edges: [...merged.values()].sort((a, b) => a.id.localeCompare(b.id)), endpointOf };
 }
 
-// A group's fan counts distinct files across its boundary, the same unit a
-// file's own fan-in and fan-out use.
+/**
+ * A group's fan counts distinct files across its boundary, the same unit a
+ * file's own fan-in and fan-out use.
+ */
 export function groupFan(folding: Folding, edges: readonly Edge[]): Map<string, { fanIn: number; fanOut: number }> {
   const into = new Map<string, Set<string>>();
   const outOf = new Map<string, Set<string>>();
@@ -183,12 +196,15 @@ export function groupFan(folding: Folding, edges: readonly Edge[]): Map<string, 
 
 export type Selection = { kind: "group"; id: string } | { kind: "file"; path: string } | null;
 
+/** Combine an object ID and optional row handle into a selection and hover lookup key. */
 export function endpointKey(object: string, handle: string | null): string {
   return `${object}|${handle ?? ""}`;
 }
 
-// What stays at full strength: the selection, its edges, and whatever those
-// edges end on. Null when nothing is selected, meaning everything is bright.
+/**
+ * What stays at full strength: the selection, its edges, and whatever those
+ * edges end on. Null when nothing is selected, meaning everything is bright.
+ */
 export function highlight(
   view: MapView,
   edges: readonly Edge[],
@@ -236,10 +252,13 @@ export function highlight(
   return { endpoints, objects: new Set(), incoming, outgoing };
 }
 
-// Each file's direct imports and importers, sorted by path. Read straight off
-// the edge list, so a count shown beside a list is that list's length.
+/**
+ * Each file's direct imports and importers, sorted by path. Read straight off
+ * the edge list, so a count shown beside a list is that list's length.
+ */
 export function adjacency(edges: readonly Edge[]): Map<string, { imports: string[]; importedBy: string[] }> {
   const out = new Map<string, { imports: string[]; importedBy: string[] }>();
+  /** Get or initialize the mutable adjacency lists for a file path. */
   const at = (path: string) => {
     let entry = out.get(path);
     if (!entry) out.set(path, (entry = { imports: [], importedBy: [] }));

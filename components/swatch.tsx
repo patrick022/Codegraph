@@ -7,6 +7,7 @@ const CATEGORY_COLOUR: Record<string, string> = {
   jsx: "var(--kind-4)",
 };
 
+/** Render a decorative extension colour swatch, using grey for unknown categories. */
 export function CategorySwatch({ category }: { category: string }) {
   return (
     <span

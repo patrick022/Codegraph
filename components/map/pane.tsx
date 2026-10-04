@@ -25,13 +25,14 @@ type PaneProps = {
 
 type PathActions = Pick<PaneProps, "onSelect" | "onHover"> & { hovered: (path: string) => boolean };
 
+/** Show repository, file, or folder details for the current selection with shared path interactions. */
 export function DetailPane(props: PaneProps) {
   const { result, folding, selection, hover } = props;
   const byPath = useMemo(() => new Map(result.files.map((f) => [f.path, f])), [result.files]);
   const neighbours = useMemo(() => adjacency(result.edges), [result.edges]);
   const fan = useMemo(() => groupFan(folding, result.edges), [folding, result.edges]);
 
-  // A file hovered on the map, or a folded node holding it.
+  /** A file hovered on the map, or a folded node holding it. */
   const hovered = (path: string) =>
     (hover?.kind === "file" && hover.path === path) ||
     (hover?.kind === "group" && hover.id === groupId(folding.groupOf.get(path) ?? ""));
@@ -66,6 +67,7 @@ export function DetailPane(props: PaneProps) {
 
 // ── Nothing selected ─────────────────────────────────────────────────────────
 
+/** Render repository coverage counts and ranked file lists when nothing is selected. */
 function RepositorySummary({ name, result, paths }: { name: string; result: ParseResult; paths: PathActions }) {
   const { files, edges, coverage, adapter } = result;
   const mostImported = useMemo(
@@ -133,6 +135,7 @@ function RepositorySummary({ name, result, paths }: { name: string; result: Pars
   );
 }
 
+/** Display a summary metric with optional context, using a dash for an unknown value. */
 function Count({ label, value, note, title }: { label: string; value: number | null; note?: string | null; title?: string }) {
   return (
     <div className="border-r border-border px-3 py-2 last:border-r-0" title={title}>
@@ -143,6 +146,7 @@ function Count({ label, value, note, title }: { label: string; value: number | n
   );
 }
 
+/** Render up to SUMMARY_ROWS files in the supplied order and report how many remain hidden. */
 function RankedList(props: {
   title: string;
   hint: string;
@@ -176,6 +180,7 @@ function RankedList(props: {
 
 // ── Something selected ───────────────────────────────────────────────────────
 
+/** Render the selected item header and tabs, showing structure or the explanation placeholder. */
 function Selected(props: { caption: string; title: ReactNode; tab: Tab; onTab: (tab: Tab) => void; children: ReactNode }) {
   return (
     <>
@@ -208,8 +213,10 @@ function Selected(props: { caption: string; title: ReactNode; tab: Tab; onTab: (
   );
 }
 
-// Clickable like every other path in the pane: it brings the file back into
-// view on the map if its folder has been scrolled or closed since.
+/**
+ * Clickable like every other path in the pane: it brings the file back into
+ * view on the map if its folder has been scrolled or closed since.
+ */
 function PathTitle({ path, paths }: { path: string; paths: PathActions }) {
   const slash = path.lastIndexOf("/");
   return (
@@ -226,7 +233,7 @@ function PathTitle({ path, paths }: { path: string; paths: PathActions }) {
   );
 }
 
-// Counts are the lengths of the lists below them, so they can't disagree.
+/** Counts are the lengths of the lists below them, so they can't disagree. */
 function FileStructure({
   file,
   imports,
@@ -272,6 +279,7 @@ function FileStructure({
   );
 }
 
+/** Render selectable neighbouring file paths or an empty state beneath their count. */
 function NeighbourList(props: { title: string; count: ReactNode; rows: string[]; paths: PathActions }) {
   return (
     <section className="mt-3">
@@ -292,7 +300,7 @@ function NeighbourList(props: { title: string; count: ReactNode; rows: string[];
   );
 }
 
-// A folder's fan counts distinct files across its boundary, the unit a file's own counts use.
+/** A folder's fan counts distinct files across its boundary, the unit a file's own counts use. */
 function FolderStructure({ files, fan }: { files: string[]; fan: { fanIn: number; fanOut: number } }) {
   return (
     <>
@@ -321,6 +329,7 @@ function FolderStructure({ files, fan }: { files: string[]; fan: { fanIn: number
   );
 }
 
+/** Render a label and value pair in a detail definition list. */
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
@@ -330,9 +339,11 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// Every path in the pane is one of these: clicking moves the map's selection
-// to it, hovering marks it on the map, and it's marked here when the map
-// reports the pointer over it.
+/**
+ * Every path in the pane is one of these: clicking moves the map's selection
+ * to it, hovering marks it on the map, and it's marked here when the map
+ * reports the pointer over it.
+ */
 function PathRow({ path, paths, trailing }: { path: string; paths: PathActions; trailing?: ReactNode }) {
   const slash = path.lastIndexOf("/");
   return (

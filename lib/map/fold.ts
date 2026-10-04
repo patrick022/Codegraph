@@ -15,6 +15,7 @@ export type Folding = {
   groupOf: ReadonlyMap<string, string>;
 };
 
+/** Fold sparse directories into ancestors using the smallest threshold that meets MAX_GROUPS. */
 export function foldDirectories(files: readonly { path: string; folder: string }[]): Folding {
   // At a high enough threshold everything folds into the root, so this ends.
   for (let threshold = START_THRESHOLD; ; threshold++) {
@@ -27,6 +28,7 @@ export function foldDirectories(files: readonly { path: string; folder: string }
   }
 }
 
+/** Merge directories below the file threshold from deepest to shallowest, returning sorted nonempty groups. */
 function foldAt(files: readonly { path: string; folder: string }[], threshold: number): Group[] {
   // Ancestors holding no files directly are directories too, so an empty level
   // folds away like any other.
@@ -53,15 +55,18 @@ function foldAt(files: readonly { path: string; folder: string }[], threshold: n
     .sort((a, b) => a.dir.localeCompare(b.dir));
 }
 
+/** Count repository-relative directory segments, treating the root marker as depth zero. */
 function depth(dir: string): number {
   return dir === "." ? 0 : dir.split("/").length;
 }
 
+/** Return a repository-relative parent directory, using a dot for the root. */
 function parentOf(dir: string): string {
   const i = dir.lastIndexOf("/");
   return i === -1 ? "." : dir.slice(0, i);
 }
 
+/** List parent directories from nearest to root, excluding the input directory. */
 function ancestors(dir: string): string[] {
   const out: string[] = [];
   for (let d = dir; d !== "."; ) {

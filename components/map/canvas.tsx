@@ -46,9 +46,11 @@ const PANEL_MAX_WIDTH = 440;
 
 type Box = { x: number; y: number; width: number; height: number };
 
-// Height carries how many files depend on the node; sqrt so one hub doesn't
-// flatten everything else to the minimum. Width comes from the label alone, so
-// a long name doesn't read as an important folder.
+/**
+ * Height carries how many files depend on the node; sqrt so one hub doesn't
+ * flatten everything else to the minimum. Width comes from the label alone, so
+ * a long name doesn't read as an important folder.
+ */
 function sizeOf(o: MapObject): { width: number; height: number } {
   const labelWidth = o.label.length * CHAR_WIDTH + 2 * PAD_X;
   if (o.kind === "folded") {
@@ -66,8 +68,10 @@ function sizeOf(o: MapObject): { width: number; height: number } {
   };
 }
 
-// Deterministic: objects and edges arrive sorted and dagre has no randomness,
-// so the same data and the same open set give the same picture.
+/**
+ * Deterministic: objects and edges arrive sorted and dagre has no randomness,
+ * so the same data and the same open set give the same picture.
+ */
 function layout(objects: readonly MapObject[], edges: readonly MapEdge[]): Map<string, Box> {
   const g = new dagre.graphlib.Graph<object, { width: number; height: number; x?: number; y?: number }, object>();
   g.setGraph({ rankdir: "LR", nodesep: 16, ranksep: 72 });
@@ -99,6 +103,7 @@ type MapProps = {
 };
 type OpenState = { open: ReadonlyMap<string, number>; refit: number };
 
+/** Render the interactive dependency map inside its React Flow provider. */
 export function DependencyMap(props: MapProps) {
   return (
     <ReactFlowProvider>
@@ -107,6 +112,7 @@ export function DependencyMap(props: MapProps) {
   );
 }
 
+/** Manage open panels and viewport fitting while rendering shared selection and hover state. */
 function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover }: MapProps) {
   // `open` and `refit` change in the same update, so the refit effect only
   // ever sees the boxes of the layout the open produced, never the one before.
@@ -228,8 +234,10 @@ function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover 
   );
 }
 
-// The open state with `path`'s row on screen: its group opened, or its panel
-// scrolled the least distance that shows it. Unchanged if it already shows.
+/**
+ * The open state with `path`'s row on screen: its group opened, or its panel
+ * scrolled the least distance that shows it. Unchanged if it already shows.
+ */
 function reveal(s: OpenState, path: string, folding: Folding, byPath: ReadonlyMap<string, FileNode>): OpenState {
   const dir = folding.groupOf.get(path);
   const group = folding.groups.find((g) => g.dir === dir);
@@ -245,6 +253,7 @@ function reveal(s: OpenState, path: string, folding: Folding, byPath: ReadonlyMa
   };
 }
 
+/** Return the enclosing rectangle for a nonempty collection of layout boxes. */
 function boundsOf(boxes: ReadonlyMap<string, Box>): Box {
   let minX = Infinity;
   let minY = Infinity;

@@ -52,6 +52,7 @@ const HOVER_RING = "outline outline-1 -outline-offset-1 outline-accent";
 // Invisible anchors: an edge ends at the box or row, not at a dot.
 const anchor = "!size-px !min-h-0 !min-w-0 !border-0 !bg-transparent";
 
+/** Render a collapsed directory with dependency counts and edge anchors, dimmed by selection. */
 export function FoldedNodeView({ id, data }: NodeProps<FoldedNode>) {
   const { lit, hoverKey } = useContext(MapContext);
   const hovered = hoverKey === endpointKey(id, null);
@@ -72,10 +73,13 @@ export function FoldedNodeView({ id, data }: NodeProps<FoldedNode>) {
   );
 }
 
+/** Render an expanded directory with selectable file rows, paging, and synchronized edge handles. */
 export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
   const { close, selectFile, scroll, selection, lit, hoverKey, onHover } = useContext(MapContext);
   const whole = lit === null || lit.objects.has(id);
+  /** Check whether this panel row is the endpoint of the currently hovered file. */
   const hovered = (handle: string) => hoverKey === endpointKey(id, handle);
+  /** Keep a row bright when its panel is selected, it is hovered, or it neighbours the selection. */
   const bright = (handle: string) =>
     whole || hovered(handle) || (lit?.endpoints.has(endpointKey(id, handle)) ?? false);
   const anyBright =
@@ -84,6 +88,7 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
   // Wheel deltas come in pixels from trackpads and in lines from some mice;
   // they add up until they make a whole row, so slow scrolling still moves.
   const pending = useRef(0);
+  /** Accumulate wheel movement and advance the panel window by whole rows. */
   function onWheel(event: WheelEvent) {
     if (!data.scrolls) return;
     pending.current += event.deltaMode === 1 ? event.deltaY * ROW_HEIGHT : event.deltaY;
@@ -166,8 +171,10 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
   );
 }
 
-// Stands for the files scrolled out of the window on one side. Edges to those
-// files end here, so they stay on the panel. Clicking pages that way.
+/**
+ * Stands for the files scrolled out of the window on one side. Edges to those
+ * files end here, so they stay on the panel. Clicking pages that way.
+ */
 function OffscreenRow(props: {
   handle: string;
   count: number;
@@ -195,6 +202,7 @@ function OffscreenRow(props: {
   );
 }
 
+/** Display the file count and incoming and outgoing dependency counts for a directory. */
 function Meta({ fileCount, fanIn, fanOut }: { fileCount: number; fanIn: number; fanOut: number }) {
   return (
     <span className="flex items-center gap-2 text-[10px] leading-3 text-muted tabular-nums">
@@ -206,7 +214,7 @@ function Meta({ fileCount, fanIn, fanOut }: { fileCount: number; fanIn: number; 
   );
 }
 
-// The same green and amber the edges use: what flows in, what flows out.
+/** The same green and amber the edges use: what flows in, what flows out. */
 function Fan({ fanIn, fanOut }: { fanIn: number; fanOut: number }) {
   return (
     <span className="flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums">

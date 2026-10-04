@@ -6,6 +6,7 @@ import { parseRepository } from "../parser/parse.ts";
 import type { EdgeKind, ParseResult, Resolution } from "../parser/types.ts";
 
 const args = process.argv.slice(2);
+/** Return the argument following the first occurrence of a flag, or undefined if absent. */
 const flag = (name: string) => {
   const i = args.indexOf(name);
   return i === -1 ? undefined : args[i + 1];
@@ -35,8 +36,10 @@ if (readPath) {
 }
 print(result);
 
+/** Print coverage totals, resolution breakdowns, and a bounded list of unresolved imports. */
 function print(r: ParseResult) {
   const { files, imports, ignoredDirectories } = r.coverage;
+  /** Right-pad a displayed value to the requested column width. */
   const pad = (s: string | number, n: number) => String(s).padEnd(n);
   const adds = files.found === files.parsed + files.skipped.length;
 
@@ -52,6 +55,7 @@ function print(r: ParseResult) {
   console.log(`  ${pad("kind", 16)}${pad("found", 8)}${pad("internal", 10)}${pad("external", 10)}${pad("excluded", 10)}unresolved`);
   for (const kind of ["import", "re-export", "dynamic-import"] satisfies EdgeKind[]) {
     const of = all.filter((i) => i.kind === kind);
+    /** Count imports of the current kind with the requested resolution status. */
     const n = (s: Resolution["status"]) => of.filter((i) => i.resolution.status === s).length;
     console.log(`  ${pad(kind, 16)}${pad(of.length, 8)}${pad(n("internal"), 10)}${pad(n("external"), 10)}${pad(n("excluded"), 10)}${n("unresolved")}`);
   }

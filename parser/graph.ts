@@ -2,8 +2,10 @@ import type { Edge, EdgeKind } from "./types.ts";
 
 type RawEdge = { from: string; to: string; kind: EdgeKind };
 
-// Collapse repeated imports of the same file into one edge, so a file that
-// imports and re-exports a neighbour counts that neighbour once.
+/**
+ * Collapse repeated imports of the same file into one edge, so a file that
+ * imports and re-exports a neighbour counts that neighbour once.
+ */
 export function dedupeEdges(raw: RawEdge[]): Edge[] {
   const byPair = new Map<string, Edge>();
   for (const { from, to, kind } of raw) {
@@ -15,6 +17,7 @@ export function dedupeEdges(raw: RawEdge[]): Edge[] {
   return [...byPair.values()].sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
 }
 
+/** Count incoming and outgoing edges per file; throw if an endpoint is absent from the file list. */
 export function degrees(files: string[], edges: Edge[]): Map<string, { fanIn: number; fanOut: number }> {
   const result = new Map(files.map((f) => [f, { fanIn: 0, fanOut: 0 }]));
   for (const { from, to } of edges) {

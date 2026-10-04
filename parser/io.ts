@@ -5,10 +5,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { SCHEMA_VERSION, type Coverage, type Edge, type EdgeKind, type FileNode, type ImportRecord, type ParseResult, type Resolution, type SkipReason } from "./types.ts";
 
+/** Write a parse result as compact JSON, propagating filesystem errors. */
 export function writeParseResult(file: string, result: ParseResult): void {
   writeFileSync(file, JSON.stringify(result));
 }
 
+/** Read JSON and validate its schema, reporting invalid fields by their path. */
 export function readParseResult(file: string): ParseResult {
   return parseResult(JSON.parse(readFileSync(file, "utf8")), "$");
 }
@@ -16,32 +18,39 @@ export function readParseResult(file: string): ParseResult {
 const EDGE_KINDS = ["import", "re-export", "dynamic-import"] as const satisfies readonly EdgeKind[];
 const SKIP_REASONS = ["declaration-file", "syntax-error", "unreadable", "symlink"] as const satisfies readonly SkipReason[];
 
+/** Throw a validation error identifying the field path and expected value. */
 function fail(at: string, expected: string): never {
   throw new Error(`Invalid parse result at ${at}: expected ${expected}`);
 }
 
+/** Require a non-null, non-array object and copy its own enumerable properties. */
 function obj(v: unknown, at: string): Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v)) fail(at, "object");
   return Object.fromEntries(Object.entries(v));
 }
+/** Require an array and validate each item with its indexed field path. */
 function arr<T>(v: unknown, at: string, item: (x: unknown, at: string) => T): T[] {
   if (!Array.isArray(v)) fail(at, "array");
   return v.map((x, i) => item(x, `${at}[${i}]`));
 }
+/** Require a string, reporting its field path on failure. */
 function str(v: unknown, at: string): string {
   if (typeof v !== "string") fail(at, "string");
   return v;
 }
+/** Require a non-negative integer, reporting its field path on failure. */
 function num(v: unknown, at: string): number {
   if (typeof v !== "number" || !Number.isInteger(v) || v < 0) fail(at, "non-negative integer");
   return v;
 }
+/** Require one of the allowed string literals and return its narrowed value. */
 function oneOf<const T extends string>(v: unknown, at: string, options: readonly T[]): T {
   const match = options.find((o) => o === v);
   if (match === undefined) fail(at, options.join(" | "));
   return match;
 }
 
+/** Validate the schema version and reconstruct the typed parse result. */
 function parseResult(v: unknown, at: string): ParseResult {
   const o = obj(v, at);
   if (o.version !== SCHEMA_VERSION) fail(`${at}.version`, String(SCHEMA_VERSION));
@@ -54,6 +63,7 @@ function parseResult(v: unknown, at: string): ParseResult {
   };
 }
 
+/** Validate a file node and its imports, preserving field paths in errors. */
 function fileNode(v: unknown, at: string): FileNode {
   const o = obj(v, at);
   return {
@@ -67,6 +77,7 @@ function fileNode(v: unknown, at: string): FileNode {
   };
 }
 
+/** Validate an import specifier, kind, source line, and resolution. */
 function importRecord(v: unknown, at: string): ImportRecord {
   const o = obj(v, at);
   return {
@@ -77,6 +88,7 @@ function importRecord(v: unknown, at: string): ImportRecord {
   };
 }
 
+/** Validate a resolution status and the fields required for that status. */
 function resolution(v: unknown, at: string): Resolution {
   const o = obj(v, at);
   const status = oneOf(o.status, `${at}.status`, ["internal", "external", "excluded", "unresolved"]);
@@ -96,6 +108,7 @@ function resolution(v: unknown, at: string): Resolution {
   }
 }
 
+/** Validate an edge's endpoints and supported import kinds. */
 function edge(v: unknown, at: string): Edge {
   const o = obj(v, at);
   return {
@@ -105,6 +118,7 @@ function edge(v: unknown, at: string): Edge {
   };
 }
 
+/** Validate file and import counts, skipped files, and ignored directories. */
 function coverage(v: unknown, at: string): Coverage {
   const o = obj(v, at);
   const files = obj(o.files, `${at}.files`);

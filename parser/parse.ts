@@ -145,7 +145,13 @@ function isDirectory(p: string): boolean {
 }
 
 function parseFile(project: Project, root: string, rel: string): Parsed | Skipped {
-  const bytes = readFileSync(`${root}/${rel}`);
+  // A file that vanished or can't be opened since the walk is one skip, not a failed parse.
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(`${root}/${rel}`);
+  } catch (e) {
+    return { path: rel, reason: "unreadable", detail: e instanceof Error ? e.message : String(e) };
+  }
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);

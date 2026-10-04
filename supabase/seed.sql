@@ -27,4 +27,11 @@ join (values
   ('express',      'complete', 'c7b1e3d5f9a2c4e6b8d0f1a3c5e7b9d2f4a6c8e0', null, interval '5 hours',  interval '5 hours' - interval '1 minute'),
   ('react-router', 'queued',   null, null, interval '10 seconds', null)
 ) as v(repo_name, status, commit_sha, error, started, finished)
-  on v.repo_name = p.repo_name;
+  on v.repo_name = p.repo_name
+-- Re-running the seed returns the same projects, so skip ones already seeded.
+where not exists (
+  select 1 from public.analyses a
+  where a.project_id = p.id
+    and a.organization_id = p.organization_id
+    and a.status = v.status::public.analysis_status
+);

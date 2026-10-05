@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "parse": "node scripts/parse.ts",
-    "map-counts": "node scripts/map-counts.ts"
+    "map-counts": "node scripts/map-counts.ts",
+    "insights": "node scripts/insights.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.10",

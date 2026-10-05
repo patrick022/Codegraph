@@ -37,6 +37,9 @@ export const MapContext = createContext<{
   // when the selection would dim it.
   hoverKey: string | null;
   onHover: (hover: Selection) => void;
+  // The rail's category, and how many of each group's files are in it.
+  category: string | null;
+  matches: ReadonlyMap<string, number> | null;
 }>({
   close: () => {},
   selectFile: () => {},
@@ -45,6 +48,8 @@ export const MapContext = createContext<{
   lit: null,
   hoverKey: null,
   onHover: () => {},
+  category: null,
+  matches: null,
 });
 
 const DIM = "opacity-25";
@@ -54,9 +59,10 @@ const anchor = "!size-px !min-h-0 !min-w-0 !border-0 !bg-transparent";
 
 /** Render a collapsed directory with dependency counts and edge anchors, dimmed by selection. */
 export function FoldedNodeView({ id, data }: NodeProps<FoldedNode>) {
-  const { lit, hoverKey } = useContext(MapContext);
+  const { lit, hoverKey, matches } = useContext(MapContext);
   const hovered = hoverKey === endpointKey(id, null);
-  const dim = !hovered && lit !== null && !lit.endpoints.has(endpointKey(id, null));
+  const matched = matches?.get(id) ?? null;
+  const dim = !hovered && ((lit !== null && !lit.endpoints.has(endpointKey(id, null))) || matched === 0);
   return (
     <div
       title={data.dir}
@@ -67,7 +73,7 @@ export function FoldedNodeView({ id, data }: NodeProps<FoldedNode>) {
     >
       <Handle type="target" position={Position.Left} className={anchor} isConnectable={false} />
       <span className="truncate font-mono text-[11px] leading-4">{data.label}</span>
-      <Meta fileCount={data.fileCount} fanIn={data.fanIn} fanOut={data.fanOut} />
+      <Meta fileCount={data.fileCount} matched={matched} fanIn={data.fanIn} fanOut={data.fanOut} />
       <Handle type="source" position={Position.Right} className={anchor} isConnectable={false} />
     </div>
   );
@@ -75,7 +81,7 @@ export function FoldedNodeView({ id, data }: NodeProps<FoldedNode>) {
 
 /** Render an expanded directory with selectable file rows, paging, and synchronized edge handles. */
 export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
-  const { close, selectFile, scroll, selection, lit, hoverKey, onHover } = useContext(MapContext);
+  const { close, selectFile, scroll, selection, lit, hoverKey, onHover, category, matches } = useContext(MapContext);
   const whole = lit === null || lit.objects.has(id);
   /** Check whether this panel row is the endpoint of the currently hovered file. */
   const hovered = (handle: string) => hoverKey === endpointKey(id, handle);
@@ -84,6 +90,11 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
     whole || hovered(handle) || (lit?.endpoints.has(endpointKey(id, handle)) ?? false);
   const anyBright =
     data.rows.some((r) => bright(r.path)) || (data.scrolls && (bright(ABOVE_HANDLE) || bright(BELOW_HANDLE)));
+  const matched = matches?.get(id) ?? null;
+  // A dim panel's rows aren't dimmed again, or they'd fade to nothing.
+  const panelDim = !anyBright || matched === 0;
+  const rowDim = (handle: string, inCategory: boolean) =>
+    !panelDim && !hovered(handle) && ((anyBright && !bright(handle)) || !inCategory);
 
   // Wheel deltas come in pixels from trackpads and in lines from some mice;
   // they add up until they make a whole row, so slow scrolling still moves.
@@ -107,7 +118,7 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
     <div
       className={`flex size-full flex-col overflow-hidden rounded border bg-surface ${
         whole && lit !== null ? "border-accent" : "border-muted"
-      } ${anyBright ? "" : DIM}`}
+      } ${panelDim ? DIM : ""}`}
     >
       <button
         type="button"
@@ -117,7 +128,7 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
         style={{ height: HEADER_HEIGHT, paddingInline: PAD_X }}
       >
         <span className="truncate font-mono text-[11px] leading-4 font-semibold">{data.label}</span>
-        <Meta fileCount={data.fileCount} fanIn={data.fanIn} fanOut={data.fanOut} />
+        <Meta fileCount={data.fileCount} matched={matched} fanIn={data.fanIn} fanOut={data.fanOut} />
       </button>
       {/* nowheel: over the rows the wheel scrolls them instead of zooming the map. */}
       <ul className={data.scrolls ? "nowheel" : undefined} onWheel={onWheel}>
@@ -126,7 +137,7 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
             handle={ABOVE_HANDLE}
             count={data.above}
             label="above"
-            dim={anyBright && !bright(ABOVE_HANDLE)}
+            dim={rowDim(ABOVE_HANDLE, category === null)}
             hovered={hovered(ABOVE_HANDLE)}
             onClick={() => scroll(id, data.offset - MAX_ROWS)}
           />
@@ -145,7 +156,9 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
                 aria-pressed={selected}
                 className={`flex size-full items-center gap-1.5 text-left text-[11px] ${
                   selected ? "bg-accent/15 shadow-[inset_2px_0_0_var(--accent)]" : "hover:bg-bg"
-                } ${hovered(row.path) ? HOVER_RING : ""} ${anyBright && !bright(row.path) ? DIM : ""}`}
+                } ${hovered(row.path) ? HOVER_RING : ""} ${
+                  rowDim(row.path, category === null || categoryOf(row.path) === category) ? DIM : ""
+                }`}
                 style={{ paddingInline: PAD_X }}
               >
                 <CategorySwatch category={categoryOf(row.path)} />
@@ -161,7 +174,7 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
             handle={BELOW_HANDLE}
             count={data.below}
             label="below"
-            dim={anyBright && !bright(BELOW_HANDLE)}
+            dim={rowDim(BELOW_HANDLE, category === null)}
             hovered={hovered(BELOW_HANDLE)}
             onClick={() => scroll(id, data.offset + MAX_ROWS)}
           />
@@ -203,10 +216,12 @@ function OffscreenRow(props: {
 }
 
 /** Display the file count and incoming and outgoing dependency counts for a directory. */
-function Meta({ fileCount, fanIn, fanOut }: { fileCount: number; fanIn: number; fanOut: number }) {
+function Meta(props: { fileCount: number; matched: number | null; fanIn: number; fanOut: number }) {
+  const { fileCount, matched, fanIn, fanOut } = props;
   return (
     <span className="flex items-center gap-2 text-[10px] leading-3 text-muted tabular-nums">
       <span>
+        {matched !== null && <span className="text-fg">{matched} of </span>}
         {fileCount} {fileCount === 1 ? "file" : "files"}
       </span>
       <Fan fanIn={fanIn} fanOut={fanOut} />

@@ -26,7 +26,8 @@ import {
   type MapObject,
   type Selection,
 } from "@/lib/map/view";
-import type { Edge, FileNode } from "@/parser/types";
+import type { MapFile } from "@/lib/map/types";
+import type { Edge } from "@/parser/types";
 import { FoldedNodeView, HEADER_HEIGHT, MapContext, PAD_X, PanelNodeView, ROW_HEIGHT, type FoldedNode, type PanelNode } from "./nodes";
 
 const nodeTypes: NodeTypes = { folded: FoldedNodeView, panel: PanelNodeView };
@@ -93,7 +94,7 @@ function layout(objects: readonly MapObject[], edges: readonly MapEdge[]): Map<s
 }
 
 type MapProps = {
-  files: FileNode[];
+  files: MapFile[];
   edges: Edge[];
   folding: Folding;
   selection: Selection;
@@ -254,7 +255,7 @@ function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover,
  * The open state with `path`'s row on screen: its group opened, or its panel
  * scrolled the least distance that shows it. Unchanged if it already shows.
  */
-function reveal(s: OpenState, path: string, folding: Folding, byPath: ReadonlyMap<string, FileNode>): OpenState {
+function reveal(s: OpenState, path: string, folding: Folding, byPath: ReadonlyMap<string, MapFile>): OpenState {
   const dir = folding.groupOf.get(path);
   const group = folding.groups.find((g) => g.dir === dir);
   if (!group) return s;

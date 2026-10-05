@@ -5,7 +5,8 @@ import type { Folding } from "@/lib/map/fold";
 import { findInsights, LONG_LINES, reach, REACH_DEPTH, type Direction } from "@/lib/map/graph";
 import { adjacency, categoryLabel, categoryOf, countByCategory, groupFan, groupId, type Selection } from "@/lib/map/view";
 import { adapterNamed } from "@/parser/adapter";
-import type { Edge, FileNode, ParseResult } from "@/parser/types";
+import type { MapData, MapFile } from "@/lib/map/types";
+import type { Edge } from "@/parser/types";
 import { CategorySwatch } from "../swatch";
 
 export type Tab = "structure" | "explanation";
@@ -15,7 +16,7 @@ const SUMMARY_ROWS = 10;
 
 type PaneProps = {
   name: string;
-  result: ParseResult;
+  result: MapData;
   folding: Folding;
   selection: Selection;
   onSelect: (selection: Selection) => void;
@@ -90,7 +91,7 @@ export function DetailPane(props: PaneProps) {
 /** Render repository coverage counts and ranked file lists when nothing is selected. */
 function RepositorySummary(props: {
   name: string;
-  result: ParseResult;
+  result: MapData;
   paths: PathActions;
   insightsOpen: boolean;
   onInsightsOpen: (open: boolean) => void;
@@ -166,7 +167,7 @@ function RepositorySummary(props: {
 
 // Facts about the edge list, never a verdict on the code: collapsed until
 // asked for, last in the summary, and each kind says one fixed sentence.
-function Insights(props: { result: ParseResult; paths: PathActions; open: boolean; onOpen: (open: boolean) => void }) {
+function Insights(props: { result: MapData; paths: PathActions; open: boolean; onOpen: (open: boolean) => void }) {
   const { files, edges, adapter } = props.result;
   const insights = useMemo(
     () => (props.open ? findInsights(files, edges, adapterNamed(adapter).reachedBy) : null),
@@ -246,8 +247,8 @@ function InsightSentence({ children }: { children: ReactNode }) {
 function InsightFiles(props: {
   title: string;
   sentence: string;
-  files: FileNode[];
-  figure: (file: FileNode) => ReactNode;
+  files: MapFile[];
+  figure: (file: MapFile) => ReactNode;
   paths: PathActions;
 }) {
   return (
@@ -278,8 +279,8 @@ function Count({ label, value, note, title }: { label: string; value: number | n
 function RankedList(props: {
   title: string;
   hint: string;
-  files: FileNode[];
-  figure: (file: FileNode) => ReactNode;
+  files: MapFile[];
+  figure: (file: MapFile) => ReactNode;
   paths: PathActions;
 }) {
   const shown = props.files.slice(0, SUMMARY_ROWS);
@@ -370,7 +371,7 @@ function FileStructure({
   importedBy,
   paths,
 }: {
-  file: FileNode;
+  file: MapFile;
   edges: Edge[];
   reachedBy: string | null;
   imports: string[];

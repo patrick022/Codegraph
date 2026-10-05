@@ -21,4 +21,6 @@ export const env = {
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   ),
+  // Server only. Never NEXT_PUBLIC_, so Next can't inline it into a bundle.
+  supabaseSecretKey: required("SUPABASE_SECRET_KEY", process.env.SUPABASE_SECRET_KEY),
 };

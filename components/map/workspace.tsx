@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { foldDirectories } from "@/lib/map/fold";
 import { categoryLabel, countByCategory, type Selection } from "@/lib/map/view";
-import type { ParseResult } from "@/parser/types";
+import type { MapData } from "@/lib/map/types";
 import { CategorySwatch } from "../swatch";
 import { DependencyMap } from "./canvas";
 import { DetailPane, type Tab } from "./pane";
@@ -13,7 +13,7 @@ import { DetailPane, type Tab } from "./pane";
  * category, so any side can drive the others. Everything here is already in
  * the browser: nothing in this workspace reaches the network.
  */
-export function MapWorkspace({ name, result }: { name: string; result: ParseResult }) {
+export function MapWorkspace({ name, result }: { name: string; result: MapData }) {
   const folding = useMemo(() => foldDirectories(result.files), [result.files]);
   const categories = useMemo(() => countByCategory(result.files.map((f) => f.path)), [result.files]);
   const [selection, setSelection] = useState<Selection>(null);

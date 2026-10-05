@@ -1,4 +1,5 @@
-import type { Edge, FileNode } from "../../parser/types.ts";
+import type { Edge } from "../../parser/types.ts";
+import type { MapFile } from "./types.ts";
 import type { Folding } from "./fold.ts";
 
 // What's on the canvas for a set of open groups, derived from the parser's
@@ -80,7 +81,7 @@ export function shortestUniqueLabels(paths: readonly string[]): Map<string, stri
 }
 
 /** Most depended-on files first, so an unscrolled panel shows the ones that matter. */
-export function rankFiles(paths: readonly string[], byPath: ReadonlyMap<string, FileNode>): string[] {
+export function rankFiles(paths: readonly string[], byPath: ReadonlyMap<string, MapFile>): string[] {
   return [...paths].sort((a, b) => (byPath.get(b)?.fanIn ?? 0) - (byPath.get(a)?.fanIn ?? 0) || a.localeCompare(b));
 }
 
@@ -95,7 +96,7 @@ export function clampOffset(requested: number, count: number): number {
  * Throws when an edge endpoint is missing from the folding.
  */
 export function buildView(
-  files: readonly FileNode[],
+  files: readonly MapFile[],
   edges: readonly Edge[],
   folding: Folding,
   // Open groups, each with its scroll offset. Clamped here, so any number is safe.

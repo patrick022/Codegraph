@@ -111,7 +111,7 @@ function RepositorySummary(props: {
     [files],
   );
   const skipped = coverage.files.skipped.length;
-  const unresolved = coverage.imports.unresolved;
+  const { total, unresolved } = coverage.imports;
 
   return (
     <>
@@ -133,7 +133,8 @@ function RepositorySummary(props: {
         <Count
           label="Imports"
           value={edges.length}
-          note={unresolved > 0 ? `${unresolved} unresolved` : null}
+          // Always the denominator: "all resolved" of nothing found is not coverage.
+          note={total === 0 ? "none found" : `${(total - unresolved).toLocaleString("en-US")} of ${total.toLocaleString("en-US")} resolved`}
           title="Distinct file-to-file imports resolved inside this repository"
         />
         <Count
@@ -414,6 +415,13 @@ function FileStructure({
           <span className="text-incoming">{importedBy.length}</span> {importedBy.length === 1 ? "file" : "files"}
         </Fact>
         <Fact label="Reached by">{reachedBy ?? <span className="text-muted">imports only</span>}</Fact>
+        <Fact label="Exports">
+          {file.exports.length === 0 ? (
+            <span className="text-muted">nothing named in this file</span>
+          ) : (
+            <span className="font-mono break-all">{file.exports.join(", ")}</span>
+          )}
+        </Fact>
       </dl>
       <div className="flex gap-1.5 border-b border-border px-3 py-2">
         <WalkButton direction="dependents" label="Blast radius" walk={walk} onWalk={setWalk} />

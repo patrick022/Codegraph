@@ -1,4 +1,5 @@
 import type { Edge } from "../../parser/types.ts";
+import { UNCLASSIFIED, type RailKey } from "../roles.ts";
 import type { MapFile } from "./types.ts";
 import type { Folding } from "./fold.ts";
 
@@ -12,7 +13,8 @@ export const MAX_ROWS = 12;
 export const ABOVE_HANDLE = "/above";
 export const BELOW_HANDLE = "/below";
 
-export type Row = { path: string; label: string; fanIn: number; fanOut: number };
+// railKey is the file's role, or UNCLASSIFIED: what the rail's category is matched against.
+export type Row = { path: string; label: string; fanIn: number; fanOut: number; railKey: RailKey };
 
 type Common = { id: string; dir: string; label: string; fileCount: number; fanIn: number; fanOut: number };
 export type FoldedObject = Common & { kind: "folded" };
@@ -42,8 +44,8 @@ export function groupId(dir: string): string {
 }
 
 /**
- * A file's category is its extension: a fact read off the path, not a guess
- * about what the file does.
+ * A file's kind is its extension: a fact read off the path, not a guess about
+ * what the file does. It's what the swatches colour; the rail groups by role.
  */
 export function categoryOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -141,6 +143,7 @@ export function buildView(
         label: rowLabels.get(path) ?? path,
         fanIn: byPath.get(path)?.fanIn ?? 0,
         fanOut: byPath.get(path)?.fanOut ?? 0,
+        railKey: byPath.get(path)?.role ?? UNCLASSIFIED,
       })),
     };
   });

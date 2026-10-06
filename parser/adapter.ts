@@ -1,64 +1,50 @@
-// Framework knowledge lives behind this interface so the parser never asks
-// which framework it is looking at. Only the no-framework fallback exists so far.
+// Framework knowledge enters the parser only through this interface. The
+// parser asks the adapter questions; it never checks which framework it is
+// looking at. The adapters, and detection, live in adapters/.
+//
+// A project is the repository root or any folder holding a package.json, and
+// each project gets its own adapter, so a Next.js example inside a repository
+// that isn't Next.js still has its pages recognised. Every path an adapter is
+// asked about is relative to its project, not the repository.
+
+import type { SourceFile } from "ts-morph";
+import type { Framework, Role } from "../lib/roles.ts";
+import type { OmittedRoute, Route } from "./types.ts";
 
 export interface FrameworkAdapter {
-  name: string;
+  name: Framework;
   // Directory names the framework generates, skipped like node_modules. The
   // generic ones (dot-directories, dist, build, out, coverage) are skipped by
   // the walker regardless of adapter.
   ignoredDirectories: readonly string[];
-  // What reaches this file other than an import, said as a phrase: a tool
-  // loading its config, a runner collecting its tests, a framework mounting its
-  // pages. Null when imports are the only way in.
+  // Whether a package.json's dependencies and devDependencies say this framework.
+  detects: (dependencies: ReadonlySet<string>) => boolean;
+  // How something other than an import reaches this file: the framework
+  // routing to it, a tool loading it by name, a test runner collecting it. Null
+  // when only imports would. Answered from the path alone, so it's a
+  // convention the file sits in, never a guess about what it does.
   reachedBy: (path: string) => string | null;
+  // One reading of one project.
+  begin: () => AdapterRun;
 }
 
-// Named rather than matching any "*.config.*", so a module someone happened to
-// call app.config.ts isn't claimed to be loaded by a tool.
-const CONFIG_TOOLS = [
-  "astro",
-  "babel",
-  "commitlint",
-  "cypress",
-  "eslint",
-  "jest",
-  "next",
-  "playwright",
-  "postcss",
-  "prettier",
-  "rollup",
-  "stylelint",
-  "svelte",
-  "tailwind",
-  "tsup",
-  "vite",
-  "vitest",
-  "webpack",
-];
-const CONFIG_FILE = new RegExp(`^(${CONFIG_TOOLS.join("|")})\\.config\\.[cm]?[jt]s$`);
-const RC_FILE = /^\.(babel|eslint|lintstaged|mocha|prettier|stylelint|commitlint)rc\.[cm]?js$/;
-// The default include patterns of Jest and Vitest.
-const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
-const TEST_DIR = /(^|\/)__tests__\//;
+export interface AdapterRun {
+  // Called once per parsed file while its syntax tree is open. Returns the
+  // file's role from a convention: where it sits, what it's named, or a
+  // directive or syntax it contains. Null when none applies; the file stays
+  // unclassified rather than getting the nearest fit.
+  inspect: (path: string, source: SourceFile) => Role | null;
+  // Called after every file, with the project's code files that couldn't be
+  // parsed and so could hold something that changes every route.
+  routes: (unparsed: readonly string[]) => RouteReport;
+}
 
-// Conventions that hold whatever the framework: tools that load their config
-// by file name, and test runners that collect files by pattern.
-export const fallbackAdapter: FrameworkAdapter = {
-  name: "none",
-  ignoredDirectories: [],
-  reachedBy: (path) => {
-    const name = path.slice(path.lastIndexOf("/") + 1);
-    if (CONFIG_FILE.test(name) || RC_FILE.test(name)) return "config file, loaded by its tool";
-    if (TEST_FILE.test(name) || TEST_DIR.test(path)) return "test file, collected by the test runner";
-    return null;
-  },
+export type RouteReport = {
+  // Routes whose method and full pattern are both written in the syntax.
+  routes: Route[];
+  // Declared as routes, but the method or full pattern isn't written there.
+  omitted: OmittedRoute[];
+  // Set when something project-wide makes every pattern uncertain. Then
+  // nothing is listed, not even what was omitted.
+  withheld: string | null;
 };
-
-const adapters = [fallbackAdapter];
-
-// A parse result records its adapter by name; this gets the conventions back.
-export function adapterNamed(name: string): FrameworkAdapter {
-  const adapter = adapters.find((a) => a.name === name);
-  if (!adapter) throw new Error(`No adapter named ${JSON.stringify(name)}`);
-  return adapter;
-}

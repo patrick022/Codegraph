@@ -157,7 +157,7 @@ export function PanelNodeView({ id, data }: NodeProps<PanelNode>) {
                 className={`flex size-full items-center gap-1.5 text-left text-[11px] ${
                   selected ? "bg-accent/15 shadow-[inset_2px_0_0_var(--accent)]" : "hover:bg-bg"
                 } ${hovered(row.path) ? HOVER_RING : ""} ${
-                  rowDim(row.path, category === null || categoryOf(row.path) === category) ? DIM : ""
+                  rowDim(row.path, category === null || row.railKey === category) ? DIM : ""
                 }`}
                 style={{ paddingInline: PAD_X }}
               >

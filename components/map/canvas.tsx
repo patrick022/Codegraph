@@ -15,7 +15,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Folding } from "@/lib/map/fold";
 import {
   buildView,
-  categoryOf,
   clampOffset,
   endpointKey,
   groupId,
@@ -27,6 +26,7 @@ import {
   type Selection,
 } from "@/lib/map/view";
 import type { MapFile } from "@/lib/map/types";
+import { UNCLASSIFIED } from "@/lib/roles";
 import type { Edge } from "@/parser/types";
 import { FoldedNodeView, HEADER_HEIGHT, MapContext, PAD_X, PanelNodeView, ROW_HEIGHT, type FoldedNode, type PanelNode } from "./nodes";
 
@@ -102,7 +102,7 @@ type MapProps = {
   // A file hovered here or in the detail pane; a group only from here.
   hover: Selection;
   onHover: (hover: Selection) => void;
-  // The rail's category: files outside it dim. Null when none is picked.
+  // The rail's category, a role or UNCLASSIFIED: files outside it dim. Null when none is picked.
   category: string | null;
 };
 type OpenState = { open: ReadonlyMap<string, number>; refit: number };
@@ -141,8 +141,10 @@ function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover,
     () =>
       category === null
         ? null
-        : new Map(folding.groups.map((g) => [groupId(g.dir), g.files.filter((f) => categoryOf(f) === category).length])),
-    [folding, category],
+        : new Map(
+            folding.groups.map((g) => [groupId(g.dir), g.files.filter((f) => (byPath.get(f)?.role ?? UNCLASSIFIED) === category).length]),
+          ),
+    [folding, category, byPath],
   );
   const hovered = hover?.kind === "file" ? view.endpointOf.get(hover.path) : undefined;
   const hoverKey = hovered ? endpointKey(hovered.object, hovered.handle) : null;

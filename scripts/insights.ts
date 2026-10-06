@@ -3,7 +3,6 @@
 // disagrees with the edge list.
 
 import { findInsights, reach } from "../lib/map/graph.ts";
-import { adapterNamed } from "../parser/adapter.ts";
 import { readParseResult } from "../parser/io.ts";
 
 const file = process.argv[2];
@@ -12,9 +11,9 @@ if (!file) {
   process.exit(1);
 }
 
-const { files, edges, adapter } = readParseResult(file);
+const { files, edges } = readParseResult(file);
 const started = performance.now();
-const insights = findInsights(files, edges, adapterNamed(adapter).reachedBy);
+const insights = findInsights(files, edges);
 console.log(`insights in ${Math.round(performance.now() - started)}ms`);
 
 const has = new Set(edges.map((e) => `${e.from}\0${e.to}`));

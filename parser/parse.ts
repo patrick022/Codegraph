@@ -6,7 +6,9 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { isBuiltin } from "node:module";
 import path from "node:path";
 import { Node, Project, SyntaxKind, ts } from "ts-morph";
-import { fallbackAdapter, type FrameworkAdapter } from "./adapter.ts";
+import type { Role } from "../lib/roles.ts";
+import type { AdapterRun, FrameworkAdapter } from "./adapter.ts";
+import { fallbackAdapter, selectAdapter } from "./adapters/index.ts";
 import { dedupeEdges, degrees } from "./graph.ts";
 import {
   SCHEMA_VERSION,
@@ -16,6 +18,7 @@ import {
   type ImportRecord,
   type ParseResult,
   type Resolution,
+  type Route,
 } from "./types.ts";
 
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
@@ -23,7 +26,10 @@ const DECLARATION = /\.d\.([^./]+\.)?[mc]?ts$/;
 const BUILD_OUTPUT = new Set(["dist", "build", "out", "coverage"]);
 
 type RawImport = { specifier: string; kind: EdgeKind; line: number; literal: boolean };
-type Parsed = { path: string; lines: number; hash: string; imports: RawImport[] };
+type Parsed = { path: string; lines: number; hash: string; imports: RawImport[]; role: Role | null; reachedBy: string | null };
+type WalkProject = { path: string; adapter: FrameworkAdapter };
+// What a parsed file is asked through: its project's run, and its path within that project.
+type Asker = { run: AdapterRun; adapter: FrameworkAdapter; within: string };
 type Skipped = Coverage["files"]["skipped"][number];
 
 /** Normalize path separators to forward slashes for stored paths and comparisons. */
@@ -33,27 +39,41 @@ const posix = (p: string) => p.replaceAll("\\", "/");
  * Parse a local repository into file nodes, resolved import edges, and coverage counts.
  * Unreadable or invalid source files are recorded as skipped; root and directory traversal errors propagate.
  */
-export function parseRepository(dir: string, adapter: FrameworkAdapter = fallbackAdapter): ParseResult {
-  return parseSelection(selectFiles(dir, adapter));
+export function parseRepository(dir: string): ParseResult {
+  return parseSelection(selectFiles(dir));
 }
 
 export type Selection = ReturnType<typeof selectFiles>;
 
-/** Choose the files to parse: walk the directory, skipping what never gets parsed and recording why. */
-export function selectFiles(dir: string, adapter: FrameworkAdapter = fallbackAdapter) {
+/** Choose the files to parse and the project each belongs to: walk the directory, skipping what never gets parsed and recording why. */
+export function selectFiles(dir: string) {
   // realpath gives canonical casing, so paths TypeScript hands back compare equal to ours.
   const root = posix(realpathSync.native(path.resolve(dir)));
-  return { root, adapter, ...walk(root, adapter) };
+  return { root, ...walk(root) };
+}
+
+/** Paths handed to an adapter are relative to its project. */
+function withinProject(project: string, rel: string): string {
+  return project === "." ? rel : rel.slice(project.length + 1);
 }
 
 /** Parse a selection into file nodes, resolved import edges, and coverage counts. */
 export function parseSelection(walked: Selection): ParseResult {
-  const { root, adapter } = walked;
+  const { root } = walked;
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { allowJs: true } });
   const parsed: Parsed[] = [];
   const skipped: Skipped[] = [...walked.skipped];
+  const runs = new Map(walked.projects.map((p) => [p.path, p.adapter.begin()]));
+  /** The project run and project-relative path a file is asked about. */
+  const askerOf = (rel: string): Asker => {
+    const at = walked.projectOf.get(rel);
+    const owner = walked.projects.find((p) => p.path === at);
+    const run = at === undefined ? undefined : runs.get(at);
+    if (at === undefined || !owner || !run) throw new Error(`${rel} was walked without a project`);
+    return { run, adapter: owner.adapter, within: withinProject(at, rel) };
+  };
   for (const rel of walked.files) {
-    const result = parseFile(project, root, rel);
+    const result = parseFile(project, root, rel, askerOf(rel));
     if ("reason" in result) skipped.push(result);
     else parsed.push(result);
   }
@@ -85,7 +105,31 @@ export function parseSelection(walked: Selection): ParseResult {
     hash: f.hash,
     imports: f.imports,
     ...degree.get(f.path)!,
+    reachedBy: f.reachedBy,
+    role: f.role,
   }));
+
+  // Each project's adapter reports its own routes, by project-relative path,
+  // mapped back to repository paths here.
+  const found: Route[] = [];
+  const omitted: Coverage["routes"]["omitted"] = [];
+  const withheld: Coverage["routes"]["withheld"] = [];
+  for (const { path: at } of walked.projects) {
+    const toRepo = (p: string) => (at === "." ? p : `${at}/${p}`);
+    // A declaration file has no runtime code, so it can't hold anything an adapter reads.
+    const unparsed = skipped
+      .filter((f) => f.reason !== "declaration-file" && walked.projectOf.get(f.path) === at)
+      .map((f) => withinProject(at, f.path));
+    const report = runs.get(at)!.routes(unparsed);
+    if (report.withheld !== null) {
+      withheld.push({ project: at, reason: report.withheld });
+      continue;
+    }
+    for (const r of report.routes) found.push({ ...r, file: toRepo(r.file) });
+    for (const o of report.omitted) omitted.push({ ...o, file: toRepo(o.file) });
+  }
+  // An array of paths on a decorator can name the same route twice.
+  const routes = [...new Map(found.map((r) => [`${r.method} ${r.path} ${r.file}`, r])).values()];
 
   const imports: Coverage["imports"] = { total: 0, internal: 0, external: 0, excluded: 0, unresolved: 0 };
   for (const f of files) {
@@ -97,9 +141,10 @@ export function parseSelection(walked: Selection): ParseResult {
 
   return {
     version: SCHEMA_VERSION,
-    adapter: adapter.name,
+    projects: walked.projects.map((p) => ({ path: p.path, adapter: p.adapter.name })),
     files,
     edges,
+    routes: routes.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method) || a.file.localeCompare(b.file)),
     coverage: {
       files: {
         found: walked.files.length + walked.skipped.length,
@@ -108,6 +153,7 @@ export function parseSelection(walked: Selection): ParseResult {
       },
       ignoredDirectories: walked.ignored,
       imports,
+      routes: { omitted: omitted.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line), withheld },
     },
   };
 }
@@ -116,35 +162,73 @@ export function parseSelection(walked: Selection): ParseResult {
  * Keep whole directories: every source file outside ignored directories is a
  * candidate. Never selects by size, so an imported leaf can't be dropped while
  * its importer is kept.
+ *
+ * The root is always a project. Below it, a package.json starts one only when
+ * a framework is detected there; otherwise the folder stays in its parent's
+ * project and keeps its conventions.
  */
-function walk(root: string, adapter: FrameworkAdapter) {
+function walk(root: string) {
   const files: string[] = [];
   const skipped: Skipped[] = [];
   const ignored: Coverage["ignoredDirectories"] = [];
+  const projects: WalkProject[] = [];
+  // The project of every file found, parsed or skipped.
+  const projectOf = new Map<string, string>();
 
   /** Visit a repository-relative directory, collecting source files and recording skips and ignored directories. */
-  const visit = (rel: string) => {
-    for (const entry of readdirSync(rel ? `${root}/${rel}` : root, { withFileTypes: true })) {
+  const visit = (rel: string, parent: WalkProject | null) => {
+    const dir = rel ? `${root}/${rel}` : root;
+    const entries = readdirSync(dir, { withFileTypes: true });
+    let project = parent;
+    const manifest = entries.some((e) => e.isFile() && e.name === "package.json");
+    if (!parent || manifest) {
+      const adapter = selectAdapter(manifest ? dependencies(`${dir}/package.json`) : new Set());
+      if (!parent || adapter !== fallbackAdapter) {
+        project = { path: rel || ".", adapter };
+        projects.push(project);
+      }
+    }
+    if (!project) throw new Error(`No project for ${rel}`);
+
+    for (const entry of entries) {
       const p = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        const reason = ignoreReason(entry.name, adapter);
+        const reason = ignoreReason(entry.name, project.adapter);
         if (reason) ignored.push({ path: p, reason });
-        else visit(p);
+        else visit(p, project);
       } else if (entry.isSymbolicLink()) {
         // Following links risks cycles and files that live outside the repo.
-        if (SOURCE.test(entry.name)) skipped.push({ path: p, reason: "symlink", detail: "symbolic link, not followed" });
-        else if (isDirectory(`${root}/${p}`)) ignored.push({ path: p, reason: "symbolic link, not followed" });
+        if (SOURCE.test(entry.name)) {
+          projectOf.set(p, project.path);
+          skipped.push({ path: p, reason: "symlink", detail: "symbolic link, not followed" });
+        } else if (isDirectory(`${root}/${p}`)) ignored.push({ path: p, reason: "symbolic link, not followed" });
       } else if (entry.isFile() && SOURCE.test(entry.name)) {
+        projectOf.set(p, project.path);
         if (DECLARATION.test(entry.name)) {
           skipped.push({ path: p, reason: "declaration-file", detail: "types only, no runtime imports" });
         } else files.push(p);
       }
     }
   };
-  visit("");
+  visit("", null);
   files.sort();
   ignored.sort((a, b) => a.path.localeCompare(b.path));
-  return { files, skipped, ignored };
+  return { files, skipped, ignored, projects, projectOf };
+}
+
+/** Every name a package.json declares in dependencies and devDependencies; an unreadable one declares nothing. */
+function dependencies(file: string): Set<string> {
+  const names = new Set<string>();
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(file, "utf8"));
+    for (const field of ["dependencies", "devDependencies"]) {
+      const group: unknown = typeof pkg === "object" && pkg !== null ? Reflect.get(pkg, field) : undefined;
+      if (typeof group === "object" && group !== null) for (const name of Object.keys(group)) names.add(name);
+    }
+  } catch {
+    // not valid JSON: declares nothing, so only the fallback matches
+  }
+  return names;
 }
 
 /** Return why a directory should be excluded, or null when it should be traversed. */
@@ -166,10 +250,10 @@ function isDirectory(p: string): boolean {
 }
 
 /**
- * Read and parse one source file, returning imports and metadata or a skip reason.
+ * Read and parse one source file, returning imports, metadata and its adapter role, or a skip reason.
  * The temporary source file is removed from the project after inspection.
  */
-function parseFile(project: Project, root: string, rel: string): Parsed | Skipped {
+function parseFile(project: Project, root: string, rel: string, asker: Asker): Parsed | Skipped {
   // A file that vanished or can't be opened since the walk is one skip, not a failed parse.
   let bytes: Buffer;
   try {
@@ -212,7 +296,9 @@ function parseFile(project: Project, root: string, rel: string): Parsed | Skippe
     imports.sort((a, b) => a.line - b.line);
 
     const lines = text === "" ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-    return { path: rel, lines, hash: createHash("sha256").update(bytes).digest("hex"), imports };
+    const role = asker.run.inspect(asker.within, sf);
+    const reachedBy = asker.adapter.reachedBy(asker.within);
+    return { path: rel, lines, hash: createHash("sha256").update(bytes).digest("hex"), imports, role, reachedBy };
   } finally {
     project.removeSourceFile(sf);
   }

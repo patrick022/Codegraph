@@ -1,8 +1,9 @@
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { degrees } from "../parser/graph.ts";
-import { readCoverage } from "../parser/io.ts";
-import type { Edge, EdgeKind } from "../parser/types.ts";
+import { readCoverage, readProjects } from "../parser/io.ts";
+import { ROLE_IDS, type Role } from "./roles.ts";
+import type { Edge, EdgeKind, Route } from "../parser/types.ts";
 import type { Database } from "./database.types.ts";
 import type { MapData } from "./map/types.ts";
 
@@ -20,17 +21,20 @@ const EDGE_KINDS: readonly EdgeKind[] = ["import", "re-export", "dynamic-import"
  * of drawing a quietly wrong map. Reads with the caller's client, so the
  * policies decide whether any of it comes back.
  */
-export async function loadStoredMap(db: Db, analysis: { id: string; adapter: string; coverage: unknown }): Promise<MapData> {
+export async function loadStoredMap(db: Db, analysis: { id: string; projects: unknown; coverage: unknown }): Promise<MapData> {
   const files = await readAll((from, to) =>
     db
       .from("files")
-      .select("id, path, lines, hash, skip_reason, skip_detail")
+      .select("id, path, lines, hash, reached_by, skip_reason, skip_detail, file_roles(role)")
       .eq("analysis_id", analysis.id)
       .order("id")
       .range(from, to),
   );
   const rows = await readAll((from, to) =>
     db.from("edges").select("source_file_id, target_file_id, kinds").eq("analysis_id", analysis.id).order("id").range(from, to),
+  );
+  const routeRows = await readAll((from, to) =>
+    db.from("routes").select("file_id, method, path, line").eq("analysis_id", analysis.id).order("id").range(from, to),
   );
 
   // Code-unit order, as the parser's walk sorts them, so the rebuilt list is the parsed one.
@@ -52,6 +56,14 @@ export async function loadStoredMap(db: Db, analysis: { id: string; adapter: str
       return { from, to, kinds };
     })
     .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+
+  const routes: Route[] = routeRows
+    .map((r) => {
+      const file = nodePath.get(r.file_id);
+      if (!file) throw new Error(`Stored route ${r.method} ${r.path} isn't on a parsed file of this analysis`);
+      return { file, line: r.line, method: r.method, path: r.path };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method) || a.file.localeCompare(b.file));
 
   // The stored report has everything but the skip list, which is the files table's.
   const stored = typeof analysis.coverage === "object" && analysis.coverage !== null ? analysis.coverage : {};
@@ -80,14 +92,33 @@ export async function loadStoredMap(db: Db, analysis: { id: string; adapter: str
     edges,
   );
   return {
-    adapter: analysis.adapter,
+    projects: readProjects(analysis.projects, "analyses.detected_projects"),
     files: parsed.map((f) => {
       if (f.lines === null || f.hash === null) throw new Error(`Parsed file ${f.path} is stored without its measurements`);
-      return { path: f.path, folder: path.posix.dirname(f.path), lines: f.lines, hash: f.hash, ...degree.get(f.path)! };
+      // file_id is unique in file_roles, so there's at most one.
+      const role = roleNamed(f.file_roles[0]?.role ?? null, f.path);
+      return {
+        path: f.path,
+        folder: path.posix.dirname(f.path),
+        lines: f.lines,
+        hash: f.hash,
+        ...degree.get(f.path)!,
+        reachedBy: f.reached_by,
+        role,
+      };
     }),
     edges,
+    routes,
     coverage,
   };
+}
+
+/** A stored role checked against the taxonomy, so a stale or mistyped one fails by name. */
+function roleNamed(stored: string | null, path: string): Role | null {
+  if (stored === null) return null;
+  const role = ROLE_IDS.find((r) => r === stored);
+  if (!role) throw new Error(`Stored role ${JSON.stringify(stored)} of ${path} isn't in the taxonomy`);
+  return role;
 }
 
 /** Read every page of a bounded query, in order. */

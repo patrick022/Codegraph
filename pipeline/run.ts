@@ -8,7 +8,7 @@ import type { PostgrestError, PostgrestSingleResponse } from "@supabase/supabase
 import type { Database, Json } from "../lib/database.types.ts";
 import type { SecretClient } from "../lib/supabase-secret.ts";
 import { parseSelection, selectFiles } from "../parser/parse.ts";
-import type { Coverage, ParseResult } from "../parser/types.ts";
+import { SCHEMA_VERSION, type Coverage, type ParseResult } from "../parser/types.ts";
 import { fetchArchive, type Repository } from "./archive.ts";
 import { STALE_AFTER_MS, type Stage } from "./stages.ts";
 
@@ -72,7 +72,8 @@ export async function claimAnalysis(db: SecretClient, analysisId: string): Promi
       finished_at: null,
       error: null,
       coverage: null,
-      adapter: null,
+      detected_projects: null,
+      schema_version: null,
     })
     .eq("id", analysisId)
     .or(`status.neq.running,started_at.lt.${staleBefore}`)
@@ -118,13 +119,19 @@ export async function runAnalysis(db: SecretClient, claimed: ClaimedRun): Promis
     // worker thread if other requests visibly stall during a run.
     const result = parseSelection(selection);
 
-    await enter(db, claimed, "store", `Storing ${count(result.coverage.files.found, "file")} and ${count(result.edges.length, "edge")}`);
+    await enter(
+      db,
+      claimed,
+      "store",
+      `Storing ${count(result.coverage.files.found, "file")}, ${count(result.edges.length, "edge")} and ${count(result.routes.length, "route")}`,
+    );
     await store(db, claimed, result);
 
     await update(db, claimed, {
       status: "complete",
       finished_at: new Date().toISOString(),
-      adapter: result.adapter,
+      detected_projects: result.projects,
+      schema_version: SCHEMA_VERSION,
       coverage: storedCoverage(result.coverage),
       stage_message: `Mapped ${count(result.files.length, "file")} and ${count(result.edges.length, "edge")}`,
     });
@@ -174,7 +181,7 @@ async function update(db: SecretClient, claimed: ClaimedRun, values: Database["p
  */
 async function store(db: SecretClient, claimed: ClaimedRun, result: ParseResult) {
   const scope = { organization_id: claimed.organizationId, analysis_id: claimed.analysisId };
-  // Edges go with their files, by cascade.
+  // Edges, roles and routes go with their files, by cascade.
   await must(db.from("files").delete().eq("analysis_id", claimed.analysisId));
 
   const ids = new Map<string, string>();
@@ -192,7 +199,7 @@ async function store(db: SecretClient, claimed: ClaimedRun, result: ParseResult)
   };
 
   const files: Database["public"]["Tables"]["files"]["Insert"][] = [
-    ...result.files.map((f) => ({ ...scope, id: assign(f.path), path: f.path, lines: f.lines, hash: f.hash })),
+    ...result.files.map((f) => ({ ...scope, id: assign(f.path), path: f.path, lines: f.lines, hash: f.hash, reached_by: f.reachedBy })),
     ...result.coverage.files.skipped.map((s) => ({
       ...scope,
       id: assign(s.path),
@@ -205,11 +212,20 @@ async function store(db: SecretClient, claimed: ClaimedRun, result: ParseResult)
 
   const edges = result.edges.map((e) => ({ ...scope, source_file_id: idOf(e.from), target_file_id: idOf(e.to), kinds: e.kinds }));
   await inBatches(edges, (rows) => db.from("edges").insert(rows));
+
+  // Only files a convention named get a row; the rest stay unclassified rather than labelled "other".
+  const roles = result.files.flatMap((f) =>
+    f.role === null ? [] : [{ organization_id: claimed.organizationId, file_id: idOf(f.path), role: f.role, source: "convention" }],
+  );
+  await inBatches(roles, (rows) => db.from("file_roles").insert(rows));
+
+  const routes = result.routes.map((r) => ({ ...scope, file_id: idOf(r.file), method: r.method, path: r.path, line: r.line }));
+  await inBatches(routes, (rows) => db.from("routes").insert(rows));
 }
 
 /** Coverage without the skipped-file list, which is the files table's. */
-function storedCoverage({ files, ignoredDirectories, imports }: Coverage): Json {
-  return { files: { found: files.found, parsed: files.parsed }, ignoredDirectories, imports };
+function storedCoverage({ files, ignoredDirectories, imports, routes }: Coverage): Json {
+  return { files: { found: files.found, parsed: files.parsed }, ignoredDirectories, imports, routes };
 }
 
 /** Write rows in fixed-size batches, so a large repository isn't one oversized request. */

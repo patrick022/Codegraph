@@ -8,6 +8,7 @@ import type { MapData } from "@/lib/map/types";
 import { loadStoredMap } from "@/lib/stored-map";
 import { supabase } from "@/lib/supabase";
 import { ago } from "@/lib/time";
+import { SCHEMA_VERSION } from "@/parser/types";
 import { isStale, progressOf } from "@/pipeline/stages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,6 +35,21 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
     );
   }
 
+  if (loaded.kind === "outdated") {
+    // Stored before the parser read roles and routes. Showing it would present
+    // every file as unclassified and the route table as empty, neither of
+    // which was checked.
+    return (
+      <div className="flex h-full flex-col">
+        <AnalysisHeader {...loaded.header} />
+        <div className="px-3 py-3 text-xs">
+          <p>This analysis was stored by an older version of the parser, which didn&apos;t read file roles or routes.</p>
+          <p className="mt-0.5 text-muted">Re-run it to map it with the current one.</p>
+        </div>
+      </div>
+    );
+  }
+
   const { props } = loaded;
   // A fresh mount per server render, so "unchanged since render" restarts with it.
   return <AnalysisProgress key={`${props.initial.status}:${props.initial.stage}:${props.started?.iso}`} {...props} />;
@@ -41,6 +57,7 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
 
 type Loaded =
   | { kind: "map"; header: ComponentProps<typeof AnalysisHeader>; map: MapData }
+  | { kind: "outdated"; header: ComponentProps<typeof AnalysisHeader> }
   | { kind: "progress"; props: ComponentProps<typeof AnalysisProgress> };
 
 /**
@@ -53,17 +70,19 @@ async function loadAnalysis(id: string): Promise<Loaded | null> {
   const db = supabase();
   const { data, error } = await db
     .from("analyses")
-    .select("id, status, stage, stage_message, error, commit_sha, adapter, coverage, created_at, started_at, projects(repo_owner, repo_name)")
+    .select("id, status, stage, stage_message, error, commit_sha, detected_projects, coverage, schema_version, created_at, started_at, projects(repo_owner, repo_name)")
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error(`Couldn't load analysis: ${error.message}`);
   if (!data?.projects) return null;
   const repository = { owner: data.projects.repo_owner, name: data.projects.repo_name };
 
-  // The row's constraint guarantees a complete run has its commit, adapter and coverage.
-  if (data.status === "complete" && data.commit_sha && data.adapter) {
-    const map = await loadStoredMap(db, { id: data.id, adapter: data.adapter, coverage: data.coverage });
-    return { kind: "map", header: { analysisId: data.id, repository, commitSha: data.commit_sha }, map };
+  // The row's constraint guarantees a complete run has its commit, projects and coverage.
+  if (data.status === "complete" && data.commit_sha) {
+    const header = { analysisId: data.id, repository, commitSha: data.commit_sha };
+    if (data.schema_version !== SCHEMA_VERSION) return { kind: "outdated", header };
+    const map = await loadStoredMap(db, { id: data.id, projects: data.detected_projects, coverage: data.coverage });
+    return { kind: "map", header, map };
   }
 
   // The clock is read once per request; nothing ticks in the browser.

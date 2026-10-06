@@ -18,45 +18,48 @@ export type Database = {
     Tables: {
       analyses: {
         Row: {
-          adapter: string | null
           commit_sha: string | null
           coverage: Json | null
           created_at: string
+          detected_projects: Json | null
           error: string | null
           finished_at: string | null
           id: string
           organization_id: string
           project_id: string
+          schema_version: number | null
           stage: Database["public"]["Enums"]["analysis_stage"] | null
           stage_message: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
         }
         Insert: {
-          adapter?: string | null
           commit_sha?: string | null
           coverage?: Json | null
           created_at?: string
+          detected_projects?: Json | null
           error?: string | null
           finished_at?: string | null
           id?: string
           organization_id: string
           project_id: string
+          schema_version?: number | null
           stage?: Database["public"]["Enums"]["analysis_stage"] | null
           stage_message?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
         }
         Update: {
-          adapter?: string | null
           commit_sha?: string | null
           coverage?: Json | null
           created_at?: string
+          detected_projects?: Json | null
           error?: string | null
           finished_at?: string | null
           id?: string
           organization_id?: string
           project_id?: string
+          schema_version?: number | null
           stage?: Database["public"]["Enums"]["analysis_stage"] | null
           stage_message?: string | null
           started_at?: string | null
@@ -224,6 +227,7 @@ export type Database = {
           lines: number | null
           organization_id: string
           path: string
+          reached_by: string | null
           skip_detail: string | null
           skip_reason: string | null
         }
@@ -234,6 +238,7 @@ export type Database = {
           lines?: number | null
           organization_id: string
           path: string
+          reached_by?: string | null
           skip_detail?: string | null
           skip_reason?: string | null
         }
@@ -244,6 +249,7 @@ export type Database = {
           lines?: number | null
           organization_id?: string
           path?: string
+          reached_by?: string | null
           skip_detail?: string | null
           skip_reason?: string | null
         }
@@ -355,6 +361,7 @@ export type Database = {
           analysis_id: string
           file_id: string
           id: string
+          line: number
           method: string
           organization_id: string
           path: string
@@ -363,6 +370,7 @@ export type Database = {
           analysis_id: string
           file_id: string
           id?: string
+          line: number
           method: string
           organization_id: string
           path: string
@@ -371,6 +379,7 @@ export type Database = {
           analysis_id?: string
           file_id?: string
           id?: string
+          line?: number
           method?: string
           organization_id?: string
           path?: string

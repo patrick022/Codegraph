@@ -1,7 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// The preview reads only checked-in data, so it needs no account.
-const isAuthPage = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)", "/preview"]);
+const isAuthPage = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
 // Where a signed-in user without an organization is sent to get one. Their
 // session is "pending" until then, which the default checks treat as signed out.
 const isOnboarding = createRouteMatcher(["/onboarding"]);

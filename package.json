@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "parse": "node scripts/parse.ts",
+    "analyze": "node --env-file=.env.local scripts/analyze.ts",
     "map-counts": "node scripts/map-counts.ts",
     "insights": "node scripts/insights.ts"
   },

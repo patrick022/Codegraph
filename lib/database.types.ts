@@ -18,33 +18,48 @@ export type Database = {
     Tables: {
       analyses: {
         Row: {
+          adapter: string | null
           commit_sha: string | null
+          coverage: Json | null
           created_at: string
           error: string | null
           finished_at: string | null
           id: string
           organization_id: string
           project_id: string
+          stage: Database["public"]["Enums"]["analysis_stage"] | null
+          stage_message: string | null
+          started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
         }
         Insert: {
+          adapter?: string | null
           commit_sha?: string | null
+          coverage?: Json | null
           created_at?: string
           error?: string | null
           finished_at?: string | null
           id?: string
           organization_id: string
           project_id: string
+          stage?: Database["public"]["Enums"]["analysis_stage"] | null
+          stage_message?: string | null
+          started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
         }
         Update: {
+          adapter?: string | null
           commit_sha?: string | null
+          coverage?: Json | null
           created_at?: string
           error?: string | null
           finished_at?: string | null
           id?: string
           organization_id?: string
           project_id?: string
+          stage?: Database["public"]["Enums"]["analysis_stage"] | null
+          stage_message?: string | null
+          started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
         }
         Relationships: [
@@ -68,28 +83,25 @@ export type Database = {
         Row: {
           analysis_id: string
           id: string
-          kind: string
+          kinds: string[]
           organization_id: string
           source_file_id: string
-          specifier: string
           target_file_id: string
         }
         Insert: {
           analysis_id: string
           id?: string
-          kind: string
+          kinds: string[]
           organization_id: string
           source_file_id: string
-          specifier: string
           target_file_id: string
         }
         Update: {
           analysis_id?: string
           id?: string
-          kind?: string
+          kinds?: string[]
           organization_id?: string
           source_file_id?: string
-          specifier?: string
           target_file_id?: string
         }
         Relationships: [
@@ -207,23 +219,32 @@ export type Database = {
       files: {
         Row: {
           analysis_id: string
+          hash: string | null
           id: string
+          lines: number | null
           organization_id: string
           path: string
+          skip_detail: string | null
           skip_reason: string | null
         }
         Insert: {
           analysis_id: string
+          hash?: string | null
           id?: string
+          lines?: number | null
           organization_id: string
           path: string
+          skip_detail?: string | null
           skip_reason?: string | null
         }
         Update: {
           analysis_id?: string
+          hash?: string | null
           id?: string
+          lines?: number | null
           organization_id?: string
           path?: string
+          skip_detail?: string | null
           skip_reason?: string | null
         }
         Relationships: [
@@ -386,7 +407,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      analysis_status: "queued" | "parsing" | "complete" | "failed"
+      analysis_stage: "fetch" | "select" | "parse" | "store"
+      analysis_status: "queued" | "running" | "complete" | "failed"
     }
     CompositeTypes: {
       [_ in never]: never

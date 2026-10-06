@@ -118,6 +118,11 @@ function edge(v: unknown, at: string): Edge {
   };
 }
 
+/** Validate a coverage report that arrived some other way than a result file, such as rebuilt from stored rows. */
+export function readCoverage(value: unknown, at: string): Coverage {
+  return coverage(value, at);
+}
+
 /** Validate file and import counts, skipped files, and ignored directories. */
 function coverage(v: unknown, at: string): Coverage {
   const o = obj(v, at);

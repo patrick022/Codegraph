@@ -34,10 +34,21 @@ const posix = (p: string) => p.replaceAll("\\", "/");
  * Unreadable or invalid source files are recorded as skipped; root and directory traversal errors propagate.
  */
 export function parseRepository(dir: string, adapter: FrameworkAdapter = fallbackAdapter): ParseResult {
+  return parseSelection(selectFiles(dir, adapter));
+}
+
+export type Selection = ReturnType<typeof selectFiles>;
+
+/** Choose the files to parse: walk the directory, skipping what never gets parsed and recording why. */
+export function selectFiles(dir: string, adapter: FrameworkAdapter = fallbackAdapter) {
   // realpath gives canonical casing, so paths TypeScript hands back compare equal to ours.
   const root = posix(realpathSync.native(path.resolve(dir)));
-  const walked = walk(root, adapter);
+  return { root, adapter, ...walk(root, adapter) };
+}
 
+/** Parse a selection into file nodes, resolved import edges, and coverage counts. */
+export function parseSelection(walked: Selection): ParseResult {
+  const { root, adapter } = walked;
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { allowJs: true } });
   const parsed: Parsed[] = [];
   const skipped: Skipped[] = [...walked.skipped];

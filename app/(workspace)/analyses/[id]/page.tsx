@@ -1,0 +1,82 @@
+import { notFound } from "next/navigation";
+import type { ComponentProps } from "react";
+import { AnalysisHeader } from "@/components/analysis-header";
+import { CoverageBanner } from "@/components/coverage-banner";
+import { MapWorkspace } from "@/components/map/workspace";
+import { AnalysisProgress } from "@/components/progress/analysis-progress";
+import type { MapData } from "@/lib/map/types";
+import { loadStoredMap } from "@/lib/stored-map";
+import { supabase } from "@/lib/supabase";
+import { ago } from "@/lib/time";
+import { isStale, progressOf } from "@/pipeline/stages";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One address per analysis: the map once it's complete, the run's progress
+ * until then. The progress view refreshes this page when the last stage
+ * lands, so a finished run turns into its map in place.
+ */
+export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]">) {
+  const loaded = await loadAnalysis((await params).id);
+  if (!loaded) notFound();
+
+  if (loaded.kind === "map") {
+    const { header, map } = loaded;
+    return (
+      <div className="flex h-full flex-col">
+        <AnalysisHeader {...header} />
+        <CoverageBanner coverage={map.coverage} />
+        <div className="flex min-h-0 flex-1">
+          <MapWorkspace name={`${header.repository.owner}/${header.repository.name}`} result={map} />
+        </div>
+      </div>
+    );
+  }
+
+  const { props } = loaded;
+  // A fresh mount per server render, so "unchanged since render" restarts with it.
+  return <AnalysisProgress key={`${props.initial.status}:${props.initial.stage}:${props.started?.iso}`} {...props} />;
+}
+
+type Loaded =
+  | { kind: "map"; header: ComponentProps<typeof AnalysisHeader>; map: MapData }
+  | { kind: "progress"; props: ComponentProps<typeof AnalysisProgress> };
+
+/**
+ * Read under the member's policy, so another organization's analysis isn't
+ * found rather than hidden. Not a uuid can't be an analysis; asking Postgres
+ * would be a cast error, not a miss.
+ */
+async function loadAnalysis(id: string): Promise<Loaded | null> {
+  if (!UUID.test(id)) return null;
+  const db = supabase();
+  const { data, error } = await db
+    .from("analyses")
+    .select("id, status, stage, stage_message, error, commit_sha, adapter, coverage, created_at, started_at, projects(repo_owner, repo_name)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Couldn't load analysis: ${error.message}`);
+  if (!data?.projects) return null;
+  const repository = { owner: data.projects.repo_owner, name: data.projects.repo_name };
+
+  // The row's constraint guarantees a complete run has its commit, adapter and coverage.
+  if (data.status === "complete" && data.commit_sha && data.adapter) {
+    const map = await loadStoredMap(db, { id: data.id, adapter: data.adapter, coverage: data.coverage });
+    return { kind: "map", header: { analysisId: data.id, repository, commitSha: data.commit_sha }, map };
+  }
+
+  // The clock is read once per request; nothing ticks in the browser.
+  const now = Date.now();
+  return {
+    kind: "progress",
+    props: {
+      analysisId: data.id,
+      repository,
+      commitSha: data.commit_sha,
+      initial: progressOf(data),
+      staleAtRender: isStale(data, now),
+      started: data.started_at ? { iso: data.started_at, ago: ago(data.started_at, now) } : null,
+    },
+  };
+}

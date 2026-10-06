@@ -43,7 +43,7 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
       <div className="flex h-full flex-col">
         <AnalysisHeader {...loaded.header} />
         <div className="px-3 py-3 text-xs">
-          <p>This analysis was stored by an older version of the parser, which didn&apos;t read file roles or routes.</p>
+          <p>This analysis was stored by an older version of the parser, which didn&apos;t read everything the current one does.</p>
           <p className="mt-0.5 text-muted">Re-run it to map it with the current one.</p>
         </div>
       </div>

@@ -37,7 +37,11 @@ export async function rerunAnalysis(analysisId: string): Promise<FormState> {
   // Visibility is the policy's call: another organization's analysis isn't
   // there to re-run. The writer below bypasses policies, so this read comes first.
   const { data, error } = await supabase().from("analyses").select("id").eq("id", analysisId).maybeSingle();
-  if (error) throw new Error(`Couldn't read analysis: ${error.message}`);
+  if (error) {
+    // The database's own message stays in the server log, not on the page.
+    console.error(`Reading analysis ${analysisId} to re-run it failed:`, error.message);
+    return { error: "Couldn't start a re-run" };
+  }
   if (!data) return { error: "Analysis not found" };
 
   const claimed = await claimAnalysis(supabaseSecret(), analysisId);

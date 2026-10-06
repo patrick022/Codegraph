@@ -12,7 +12,7 @@ type Db = SupabaseClient<Database>;
 // PostgREST returns at most this many rows per request, so larger analyses
 // are read in pages. Bounded by the analysis itself, never open-ended.
 const PAGE = 1000;
-const EDGE_KINDS: readonly EdgeKind[] = ["import", "re-export", "dynamic-import"];
+const EDGE_KINDS: readonly EdgeKind[] = ["import", "re-export", "dynamic-import", "require"];
 
 /**
  * Rebuild a complete analysis from its rows, checked the way a parser output
@@ -25,7 +25,7 @@ export async function loadStoredMap(db: Db, analysis: { id: string; projects: un
   const files = await readAll((from, to) =>
     db
       .from("files")
-      .select("id, path, lines, hash, reached_by, skip_reason, skip_detail, file_roles(role)")
+      .select("id, path, lines, hash, reached_by, exports, skip_reason, skip_detail, file_roles(role)")
       .eq("analysis_id", analysis.id)
       .order("id")
       .range(from, to),
@@ -94,7 +94,7 @@ export async function loadStoredMap(db: Db, analysis: { id: string; projects: un
   return {
     projects: readProjects(analysis.projects, "analyses.detected_projects"),
     files: parsed.map((f) => {
-      if (f.lines === null || f.hash === null) throw new Error(`Parsed file ${f.path} is stored without its measurements`);
+      if (f.lines === null || f.hash === null || f.exports === null) throw new Error(`Parsed file ${f.path} is stored without its measurements`);
       // file_id is unique in file_roles, so there's at most one.
       const role = roleNamed(f.file_roles[0]?.role ?? null, f.path);
       return {
@@ -105,6 +105,7 @@ export async function loadStoredMap(db: Db, analysis: { id: string; projects: un
         ...degree.get(f.path)!,
         reachedBy: f.reached_by,
         role,
+        exports: f.exports,
       };
     }),
     edges,

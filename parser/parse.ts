@@ -9,6 +9,7 @@ import { Node, Project, SyntaxKind, ts } from "ts-morph";
 import type { Role } from "../lib/roles.ts";
 import type { AdapterRun, FrameworkAdapter } from "./adapter.ts";
 import { fallbackAdapter, selectAdapter } from "./adapters/index.ts";
+import { exportedNames } from "./exports.ts";
 import { dedupeEdges, degrees } from "./graph.ts";
 import {
   SCHEMA_VERSION,
@@ -26,7 +27,7 @@ const DECLARATION = /\.d\.([^./]+\.)?[mc]?ts$/;
 const BUILD_OUTPUT = new Set(["dist", "build", "out", "coverage"]);
 
 type RawImport = { specifier: string; kind: EdgeKind; line: number; literal: boolean };
-type Parsed = { path: string; lines: number; hash: string; imports: RawImport[]; role: Role | null; reachedBy: string | null };
+type Parsed = { path: string; lines: number; hash: string; imports: RawImport[]; exports: string[]; role: Role | null; reachedBy: string | null };
 type WalkProject = { path: string; adapter: FrameworkAdapter };
 // What a parsed file is asked through: its project's run, and its path within that project.
 type Asker = { run: AdapterRun; adapter: FrameworkAdapter; within: string };
@@ -107,6 +108,7 @@ export function parseSelection(walked: Selection): ParseResult {
     ...degree.get(f.path)!,
     reachedBy: f.reachedBy,
     role: f.role,
+    exports: f.exports,
   }));
 
   // Each project's adapter reports its own routes, by project-relative path,
@@ -283,14 +285,24 @@ function parseFile(project: Project, root: string, rel: string, asker: Asker): P
       const specifier = d.getModuleSpecifierValue();
       if (specifier !== undefined) imports.push({ specifier, kind: "re-export", line: d.getStartLineNumber(), literal: true });
     }
+    // import() and require() can appear anywhere an expression can. The
+    // `require` in `import x = require("y")` isn't a call expression, so
+    // nothing here sees it; require.resolve() names a path without loading it.
     for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-      if (call.getExpression().getKind() !== SyntaxKind.ImportKeyword) continue;
+      const callee = call.getExpression();
+      const kind: EdgeKind | null =
+        callee.getKind() === SyntaxKind.ImportKeyword
+          ? "dynamic-import"
+          : Node.isIdentifier(callee) && callee.getText() === "require"
+            ? "require"
+            : null;
+      if (kind === null) continue;
       const [arg] = call.getArguments();
       const line = call.getStartLineNumber();
       if (arg && (Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg))) {
-        imports.push({ specifier: arg.getLiteralValue(), kind: "dynamic-import", line, literal: true });
+        imports.push({ specifier: arg.getLiteralValue(), kind, line, literal: true });
       } else {
-        imports.push({ specifier: arg?.getText() ?? "", kind: "dynamic-import", line, literal: false });
+        imports.push({ specifier: arg?.getText() ?? "", kind, line, literal: false });
       }
     }
     imports.sort((a, b) => a.line - b.line);
@@ -298,7 +310,8 @@ function parseFile(project: Project, root: string, rel: string, asker: Asker): P
     const lines = text === "" ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
     const role = asker.run.inspect(asker.within, sf);
     const reachedBy = asker.adapter.reachedBy(asker.within);
-    return { path: rel, lines, hash: createHash("sha256").update(bytes).digest("hex"), imports, role, reachedBy };
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    return { path: rel, lines, hash, imports, exports: exportedNames(sf), role, reachedBy };
   } finally {
     project.removeSourceFile(sf);
   }

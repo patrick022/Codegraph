@@ -222,6 +222,7 @@ export type Database = {
       files: {
         Row: {
           analysis_id: string
+          exports: string[] | null
           hash: string | null
           id: string
           lines: number | null
@@ -233,6 +234,7 @@ export type Database = {
         }
         Insert: {
           analysis_id: string
+          exports?: string[] | null
           hash?: string | null
           id?: string
           lines?: number | null
@@ -244,6 +246,7 @@ export type Database = {
         }
         Update: {
           analysis_id?: string
+          exports?: string[] | null
           hash?: string | null
           id?: string
           lines?: number | null

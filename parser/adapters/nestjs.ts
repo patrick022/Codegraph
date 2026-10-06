@@ -102,9 +102,16 @@ export const nestjsAdapter: FrameworkAdapter = {
 /** Every route a class decorated with Nest's own @Controller declares, or why one can't be read. */
 function controllerRoutes(path: string, source: SourceFile, declared: Declared[], omitted: OmittedRoute[]) {
   const common = importsFrom(source, "@nestjs/common");
+  const namespaces = namespaceImports(source, "@nestjs/common");
+  /** `@Get()` through a named import, or `@common.Get()` through `import * as common`. */
   const decoratorName = (d: Decorator): string | undefined => {
     const callee = d.getCallExpression()?.getExpression();
-    return callee && Node.isIdentifier(callee) ? common.get(callee.getText()) : undefined;
+    if (callee && Node.isIdentifier(callee)) return common.get(callee.getText());
+    if (callee && Node.isPropertyAccessExpression(callee)) {
+      const object = callee.getExpression();
+      if (Node.isIdentifier(object) && namespaces.has(object.getText())) return callee.getName();
+    }
+    return undefined;
   };
 
   for (const cls of source.getClasses()) {
@@ -179,6 +186,16 @@ function importsFrom(source: SourceFile, module: string): Map<string, string> {
     for (const specifier of declaration.getNamedImports()) {
       names.set(specifier.getAliasNode()?.getText() ?? specifier.getName(), specifier.getName());
     }
+  }
+  return names;
+}
+
+/** Local names of `import * as x from module`. */
+function namespaceImports(source: SourceFile, module: string): Set<string> {
+  const names = new Set<string>();
+  for (const declaration of source.getImportDeclarations()) {
+    const namespace = declaration.getNamespaceImport();
+    if (namespace && declaration.getModuleSpecifierValue() === module) names.add(namespace.getText());
   }
   return names;
 }

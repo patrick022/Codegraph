@@ -1,4 +1,5 @@
 import type { FrameworkAdapter } from "../adapter.ts";
+import { expressAdapter } from "./express.ts";
 import { nestjsAdapter } from "./nestjs.ts";
 import { nextjsAdapter } from "./nextjs.ts";
 import { reactAdapter } from "./react.ts";
@@ -14,8 +15,10 @@ export const fallbackAdapter: FrameworkAdapter = {
 };
 
 // Fixed order, first match wins. Frameworks built on React come before React
-// itself, since they depend on it too, and the fallback stays last.
-const ADAPTERS: readonly FrameworkAdapter[] = [nextjsAdapter, nestjsAdapter, reactAdapter, fallbackAdapter];
+// itself, since they depend on it too. Express comes after the frameworks that
+// can run on it (a Next.js custom server, NestJS's Express platform), and the
+// fallback stays last.
+const ADAPTERS: readonly FrameworkAdapter[] = [nextjsAdapter, nestjsAdapter, expressAdapter, reactAdapter, fallbackAdapter];
 
 /** The first adapter whose framework a package.json's dependencies declare. */
 export function selectAdapter(dependencies: ReadonlySet<string>): FrameworkAdapter {

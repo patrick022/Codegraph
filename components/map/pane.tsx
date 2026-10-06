@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Folding } from "@/lib/map/fold";
+import { findInsights, LONG_LINES, reach, REACH_DEPTH, type Direction } from "@/lib/map/graph";
 import { adjacency, categoryLabel, categoryOf, countByCategory, groupFan, groupId, type Selection } from "@/lib/map/view";
-import type { FileNode, ParseResult } from "@/parser/types";
+import { adapterNamed } from "@/parser/adapter";
+import type { Edge, FileNode, ParseResult } from "@/parser/types";
 import { CategorySwatch } from "../swatch";
 
 export type Tab = "structure" | "explanation";
@@ -21,6 +23,8 @@ type PaneProps = {
   onHover: (hover: Selection) => void;
   tab: Tab;
   onTab: (tab: Tab) => void;
+  insightsOpen: boolean;
+  onInsightsOpen: (open: boolean) => void;
 };
 
 type PathActions = Pick<PaneProps, "onSelect" | "onHover"> & { hovered: (path: string) => boolean };
@@ -45,7 +49,15 @@ export function DetailPane(props: PaneProps) {
   if (file) {
     content = (
       <Selected caption="file" title={<PathTitle path={file.path} paths={paths} />} tab={props.tab} onTab={props.onTab}>
-        <FileStructure file={file} {...(neighbours.get(file.path) ?? { imports: [], importedBy: [] })} paths={paths} />
+        {/* Keyed so a walk shown for one file isn't carried over to the next. */}
+        <FileStructure
+          key={file.path}
+          file={file}
+          edges={result.edges}
+          reachedBy={adapterNamed(result.adapter).reachedBy(file.path)}
+          {...(neighbours.get(file.path) ?? { imports: [], importedBy: [] })}
+          paths={paths}
+        />
       </Selected>
     );
   } else if (group) {
@@ -60,7 +72,15 @@ export function DetailPane(props: PaneProps) {
       </Selected>
     );
   } else {
-    content = <RepositorySummary name={props.name} result={result} paths={paths} />;
+    content = (
+      <RepositorySummary
+        name={props.name}
+        result={result}
+        paths={paths}
+        insightsOpen={props.insightsOpen}
+        onInsightsOpen={props.onInsightsOpen}
+      />
+    );
   }
   return <div className="min-h-0 flex-1 overflow-y-auto pb-3">{content}</div>;
 }
@@ -68,7 +88,14 @@ export function DetailPane(props: PaneProps) {
 // ── Nothing selected ─────────────────────────────────────────────────────────
 
 /** Render repository coverage counts and ranked file lists when nothing is selected. */
-function RepositorySummary({ name, result, paths }: { name: string; result: ParseResult; paths: PathActions }) {
+function RepositorySummary(props: {
+  name: string;
+  result: ParseResult;
+  paths: PathActions;
+  insightsOpen: boolean;
+  onInsightsOpen: (open: boolean) => void;
+}) {
+  const { name, result, paths } = props;
   const { files, edges, coverage, adapter } = result;
   const mostImported = useMemo(
     () => files.filter((f) => f.fanIn > 0).sort((a, b) => b.fanIn - a.fanIn || a.path.localeCompare(b.path)),
@@ -131,7 +158,108 @@ function RepositorySummary({ name, result, paths }: { name: string; result: Pars
         </h3>
         <p className="mt-0.5 text-[11px] text-muted">No framework adapter applied, so no file was matched to a role.</p>
       </section>
+
+      <Insights result={result} paths={paths} open={props.insightsOpen} onOpen={props.onInsightsOpen} />
     </>
+  );
+}
+
+// Facts about the edge list, never a verdict on the code: collapsed until
+// asked for, last in the summary, and each kind says one fixed sentence.
+function Insights(props: { result: ParseResult; paths: PathActions; open: boolean; onOpen: (open: boolean) => void }) {
+  const { files, edges, adapter } = props.result;
+  const insights = useMemo(
+    () => (props.open ? findInsights(files, edges, adapterNamed(adapter).reachedBy) : null),
+    [props.open, files, edges, adapter],
+  );
+  return (
+    <section className="mt-3 border-t border-border">
+      <button
+        type="button"
+        aria-expanded={props.open}
+        onClick={() => props.onOpen(!props.open)}
+        className="flex h-7 w-full items-center gap-1.5 px-3 text-left text-[11px] hover:bg-bg"
+      >
+        <span className="w-2 text-muted">{props.open ? "▾" : "▸"}</span>
+        <span>Insights</span>
+      </button>
+      {insights && (
+        <>
+          {/* Leads because it's where reading starts; the others read closer to a verdict. */}
+          <InsightFiles
+            title="Imported by nothing"
+            sentence="Nothing imports these, and no convention the adapter knows reaches them."
+            files={insights.unimported}
+            figure={(f) => <span className="text-outgoing">{f.fanOut}→</span>}
+            paths={props.paths}
+          />
+          <InsightFiles
+            title="Imported unusually often"
+            sentence="Far more files import these than import a typical file."
+            files={insights.heavilyImported}
+            figure={(f) => <span className="text-incoming">←{f.fanIn}</span>}
+            paths={props.paths}
+          />
+          <section className="mt-3">
+            <InsightHeading title="Import cycles" count={insights.cycles.length} />
+            <InsightSentence>Each file imports the next, and the last imports the first.</InsightSentence>
+            {insights.cycles.map((c) => (
+              <div key={c.files.join()} className="mt-1.5">
+                <p className="px-3 text-[10px] text-muted tabular-nums">
+                  {c.files.length} in the loop
+                  {c.tangled > c.files.length && ` · ${c.tangled} files reach each other through it`}
+                </p>
+                <ul>
+                  {c.files.map((p) => (
+                    <PathRow key={p} path={p} paths={props.paths} trailing={<span className="text-outgoing">→</span>} />
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+          <InsightFiles
+            title="Long files"
+            sentence={`These files are over ${LONG_LINES.toLocaleString("en")} lines.`}
+            files={insights.long}
+            figure={(f) => <span className="text-muted">{f.lines}</span>}
+            paths={props.paths}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function InsightHeading({ title, count }: { title: string; count: number }) {
+  return (
+    <h3 className="flex items-baseline justify-between px-3 text-[11px]">
+      <span>{title}</span>
+      <span className="text-muted tabular-nums">{count}</span>
+    </h3>
+  );
+}
+
+function InsightSentence({ children }: { children: ReactNode }) {
+  return <p className="px-3 pb-0.5 text-[11px] text-muted">{children}</p>;
+}
+
+function InsightFiles(props: {
+  title: string;
+  sentence: string;
+  files: FileNode[];
+  figure: (file: FileNode) => ReactNode;
+  paths: PathActions;
+}) {
+  return (
+    <section className="mt-3">
+      <InsightHeading title={props.title} count={props.files.length} />
+      <InsightSentence>{props.sentence}</InsightSentence>
+      <ul>
+        {props.files.map((f) => (
+          <PathRow key={f.path} path={f.path} paths={props.paths} trailing={props.figure(f)} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -236,16 +364,21 @@ function PathTitle({ path, paths }: { path: string; paths: PathActions }) {
 /** Counts are the lengths of the lists below them, so they can't disagree. */
 function FileStructure({
   file,
+  edges,
+  reachedBy,
   imports,
   importedBy,
   paths,
 }: {
   file: FileNode;
+  edges: Edge[];
+  reachedBy: string | null;
   imports: string[];
   importedBy: string[];
   paths: PathActions;
 }) {
   const category = categoryOf(file.path);
+  const [walk, setWalk] = useState<Direction | null>(null);
   return (
     <>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-b border-border px-3 py-2 text-[11px]">
@@ -267,7 +400,13 @@ function FileStructure({
         <Fact label="Depended on by">
           <span className="text-incoming">{importedBy.length}</span> {importedBy.length === 1 ? "file" : "files"}
         </Fact>
+        <Fact label="Reached by">{reachedBy ?? <span className="text-muted">imports only</span>}</Fact>
       </dl>
+      <div className="flex gap-1.5 border-b border-border px-3 py-2">
+        <WalkButton direction="dependents" label="Blast radius" walk={walk} onWalk={setWalk} />
+        <WalkButton direction="dependencies" label="Dependency chain" walk={walk} onWalk={setWalk} />
+      </div>
+      {walk && <ReachList path={file.path} edges={edges} direction={walk} paths={paths} />}
       <NeighbourList title="Imports" count={<span className="text-outgoing">{imports.length}→</span>} rows={imports} paths={paths} />
       <NeighbourList
         title="Imported by"
@@ -276,6 +415,63 @@ function FileStructure({
         paths={paths}
       />
     </>
+  );
+}
+
+function WalkButton(props: {
+  direction: Direction;
+  label: string;
+  walk: Direction | null;
+  onWalk: (walk: Direction | null) => void;
+}) {
+  const on = props.walk === props.direction;
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={() => props.onWalk(on ? null : props.direction)}
+      className={`rounded-[3px] border px-2 py-0.5 text-[11px] ${
+        on ? "border-accent bg-accent/15 text-fg" : "border-border text-muted hover:bg-bg hover:text-fg"
+      }`}
+    >
+      {props.label}
+    </button>
+  );
+}
+
+// Worked out on the click from edges already in the browser: no request, no spinner.
+function ReachList(props: { path: string; edges: Edge[]; direction: Direction; paths: PathActions }) {
+  const { path, edges, direction } = props;
+  const { steps, beyond } = useMemo(() => reach(edges, path, direction), [edges, path, direction]);
+  const total = steps.reduce((n, s) => n + s.length, 0);
+  const dependents = direction === "dependents";
+  return (
+    <section className="mt-3">
+      <h3 className="flex items-baseline gap-1.5 px-3 pb-0.5 text-[11px] text-muted">
+        <span className="text-fg">{dependents ? "Blast radius" : "Dependency chain"}</span>
+        <span>{dependents ? "what imports this, directly or through others" : "what this imports, directly or through others"}</span>
+        <span className={`ml-auto tabular-nums ${dependents ? "text-incoming" : "text-outgoing"}`}>{total}</span>
+      </h3>
+      {steps.map((list, i) => (
+        <div key={i}>
+          <h4 className="px-3 pt-1 text-[10px] text-muted tabular-nums">
+            {i + 1} {i === 0 ? "step" : "steps"} away · {list.length}
+          </h4>
+          {list.length === 0 ? (
+            <p className="px-3 text-[11px] text-muted">None.</p>
+          ) : (
+            <ul>
+              {list.map((p) => (
+                <PathRow key={p} path={p} paths={props.paths} />
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+      <p className="px-3 pt-1 text-[10px] text-muted tabular-nums">
+        {beyond > 0 ? `${beyond} more further than ${REACH_DEPTH} steps, not listed.` : `Nothing further than ${REACH_DEPTH} steps.`}
+      </p>
+    </section>
   );
 }
 

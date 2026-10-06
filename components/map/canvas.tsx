@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Folding } from "@/lib/map/fold";
 import {
   buildView,
+  categoryOf,
   clampOffset,
   endpointKey,
   groupId,
@@ -100,6 +101,8 @@ type MapProps = {
   // A file hovered here or in the detail pane; a group only from here.
   hover: Selection;
   onHover: (hover: Selection) => void;
+  // The rail's category: files outside it dim. Null when none is picked.
+  category: string | null;
 };
 type OpenState = { open: ReadonlyMap<string, number>; refit: number };
 
@@ -113,7 +116,7 @@ export function DependencyMap(props: MapProps) {
 }
 
 /** Manage open panels and viewport fitting while rendering shared selection and hover state. */
-function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover }: MapProps) {
+function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover, category }: MapProps) {
   // `open` and `refit` change in the same update, so the refit effect only
   // ever sees the boxes of the layout the open produced, never the one before.
   const [{ open, refit }, setOpenState] = useState<OpenState>({ open: new Map(), refit: 0 });
@@ -131,6 +134,15 @@ function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover 
   const view = useMemo(() => buildView(files, edges, folding, open), [files, edges, folding, open]);
   const boxes = useMemo(() => layout(view.objects, view.edges), [view]);
   const lit = useMemo(() => highlight(view, edges, selection), [view, edges, selection]);
+  // Per group, so a folded box can say how many matches it holds too, and every
+  // box's count adds up to the rail's.
+  const matches = useMemo(
+    () =>
+      category === null
+        ? null
+        : new Map(folding.groups.map((g) => [groupId(g.dir), g.files.filter((f) => categoryOf(f) === category).length])),
+    [folding, category],
+  );
   const hovered = hover?.kind === "file" ? view.endpointOf.get(hover.path) : undefined;
   const hoverKey = hovered ? endpointKey(hovered.object, hovered.handle) : null;
 
@@ -157,12 +169,14 @@ function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover 
       const stroke = lit?.incoming.has(e.id) ? "var(--incoming)" : lit?.outgoing.has(e.id) ? "var(--outgoing)" : undefined;
       (stroke ? bright : dim).push({
         ...e,
-        style: { stroke: stroke ?? "var(--edge)", strokeWidth: 0.75, opacity: lit && !stroke ? 0.15 : 1 },
+        // An edge belongs to no category, so picking one dims every edge the
+        // selection hasn't lit.
+        style: { stroke: stroke ?? "var(--edge)", strokeWidth: 0.75, opacity: (lit || category !== null) && !stroke ? 0.15 : 1 },
       });
     }
     // Bright edges drawn last so they cross over the dim ones.
     return [...dim, ...bright];
-  }, [view, lit]);
+  }, [view, lit, category]);
 
   const refitted = useRef(refit);
   const { getZoom, setViewport } = useReactFlow();
@@ -199,8 +213,10 @@ function MapCanvas({ files, edges, folding, selection, onSelect, hover, onHover 
       lit,
       hoverKey,
       onHover,
+      category,
+      matches,
     }),
-    [selection, lit, view, onSelect, hoverKey, onHover],
+    [selection, lit, view, onSelect, hoverKey, onHover, category, matches],
   );
 
   return (

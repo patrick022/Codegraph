@@ -4,6 +4,7 @@
 
 import type { Role } from "../../lib/roles.ts";
 import type { FrameworkAdapter } from "../adapter.ts";
+import { reactRole } from "./react.ts";
 import { toolConventions, toolRole } from "./shared.ts";
 
 const FOLDER_ROLES: Record<string, Role> = {
@@ -26,8 +27,9 @@ const FOLDER_ROLES: Record<string, Role> = {
 function folderRole(path: string): Role | null {
   const folders = path.split("/").slice(0, -1);
   for (let i = folders.length - 1; i >= 0; i--) {
-    const role = FOLDER_ROLES[folders[i] ?? ""];
-    if (role) return role;
+    // Own keys only: a folder called "constructor" isn't a role.
+    const folder = folders[i] ?? "";
+    if (Object.hasOwn(FOLDER_ROLES, folder)) return FOLDER_ROLES[folder] ?? null;
   }
   return null;
 }
@@ -38,8 +40,10 @@ export const expressAdapter: FrameworkAdapter = {
   detects: (deps) => deps.has("express"),
   reachedBy: toolConventions,
   begin: () => ({
-    // A test file under routes/ is still a test.
-    inspect: (path) => toolRole(path) ?? folderRole(path),
+    // A test file under routes/ is still a test. Outside the folder habit,
+    // React's own conventions still hold: one package often serves both the
+    // API and the views it renders, and first-match detection picks Express.
+    inspect: (path, source) => toolRole(path) ?? folderRole(path) ?? reactRole(path, source),
     // A pattern is assembled at runtime from the paths each router is mounted
     // on, which can be variables, arrays or regular expressions, through any
     // depth of app.use(). Reading one exactly would mean running the app.

@@ -11,8 +11,9 @@ type Add = (name: string, at: Node) => void;
 
 /** Every name a file exports, in source order, each once. */
 export function exportedNames(source: SourceFile): string[] {
-  const found: { name: string; at: number }[] = [];
-  const add: Add = (name, at) => found.push({ name, at: at.getStart() });
+  const found: { name: string; at: number; commonjs: boolean }[] = [];
+  const add: Add = (name, at) => found.push({ name, at: at.getStart(), commonjs: false });
+  const addCommonjs: Add = (name, at) => found.push({ name, at: at.getStart(), commonjs: true });
 
   for (const statement of source.getStatements()) {
     if (Node.isExportDeclaration(statement)) {
@@ -58,14 +59,14 @@ export function exportedNames(source: SourceFile): string[] {
     if (assignment.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
     const target = assignment.getLeft();
     if (isModuleExports(target)) {
-      wholeModule(assignment.getRight(), add);
+      wholeModule(assignment.getRight(), addCommonjs);
       continue;
     }
     // module.exports.name = …, exports.name = …, and the ["name"] forms.
     if (Node.isPropertyAccessExpression(target) || Node.isElementAccessExpression(target)) {
       if (!isExportsObject(target.getExpression())) continue;
       const name = Node.isPropertyAccessExpression(target) ? target.getName() : literalText(target.getArgumentExpression());
-      if (name !== null) add(name, target);
+      if (name !== null) addCommonjs(name, target);
     }
   }
 
@@ -76,11 +77,24 @@ export function exportedNames(source: SourceFile): string[] {
     const [object, key] = call.getArguments();
     if (!object || !isExportsObject(object)) continue;
     const name = literalText(key);
-    if (name !== null && name !== "__esModule") add(name, call);
+    if (name !== null && name !== "__esModule") addCommonjs(name, call);
   }
 
-  found.sort((a, b) => a.at - b.at);
-  return [...new Set(found.map((f) => f.name))];
+  // A top-level `module.exports = …` always runs and replaces the object, so
+  // nothing assigned to it earlier is exported. One inside a branch or a
+  // function may not run, so it removes nothing.
+  let replaced = -1;
+  for (const statement of source.getStatements()) {
+    if (!Node.isExpressionStatement(statement)) continue;
+    const expression = statement.getExpression();
+    if (Node.isBinaryExpression(expression) && expression.getOperatorToken().getKind() === SyntaxKind.EqualsToken && isModuleExports(expression.getLeft())) {
+      replaced = statement.getStart();
+    }
+  }
+
+  const kept = found.filter((f) => !f.commonjs || f.at >= replaced);
+  kept.sort((a, b) => a.at - b.at);
+  return [...new Set(kept.map((f) => f.name))];
 }
 
 // `module.exports = { a, b }` exports a and b. Anything else, including an
@@ -102,8 +116,11 @@ function wholeModule(value: Node, add: Add): void {
   add(WHOLE_MODULE, value);
 }
 
+/** `module.exports` or `module["exports"]`. */
 function isModuleExports(node: Node): boolean {
-  if (!Node.isPropertyAccessExpression(node) || node.getName() !== "exports") return false;
+  if (!Node.isPropertyAccessExpression(node) && !Node.isElementAccessExpression(node)) return false;
+  const key = Node.isPropertyAccessExpression(node) ? node.getName() : literalText(node.getArgumentExpression());
+  if (key !== "exports") return false;
   const object = node.getExpression();
   return Node.isIdentifier(object) && object.getText() === "module";
 }

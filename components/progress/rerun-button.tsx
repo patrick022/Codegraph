@@ -14,7 +14,15 @@ export function RerunButton({ analysisId, onStarted }: { analysisId: string; onS
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
-            const result = await rerunAnalysis(analysisId);
+            // A rejected action (network gone, server down) would otherwise
+            // escape the transition to the error boundary and take the page.
+            let result: Awaited<ReturnType<typeof rerunAnalysis>>;
+            try {
+              result = await rerunAnalysis(analysisId);
+            } catch {
+              setError("Couldn't reach the server to start a re-run.");
+              return;
+            }
             setError(result.error);
             if (!result.error) onStarted();
           })

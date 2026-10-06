@@ -27,8 +27,9 @@
 2. That same repository previously reported **100% coverage** — because it
    resolved 100% of the zero imports it knew how to look for. Confirm coverage
    now reports a real denominator.
-3. Re-run the parser against a repository analysed before this change. The
-   edge list is byte-identical.
+3. Re-run the parser against a repository analysed before this change. With
+   `require` set aside (removed from each edge's kinds, and any edge left with
+   none dropped), the edge list is byte-identical.
 
 ## Not in this phase
 

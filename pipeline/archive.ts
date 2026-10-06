@@ -175,6 +175,16 @@ async function unpack(tar: Buffer, root: string): Promise<number> {
     } else throw new Error(`Archive entry ${JSON.stringify(rel)} has tar type ${JSON.stringify(type)}, which git archive never writes`);
   }
 
+  // The target check above is lexical. A link under another link would be
+  // created, and its target resolved, through the first one, which can point
+  // somewhere the lexical path doesn't: d/a -> ../.. then d/a/b -> ../../.. lands
+  // outside root. So a link may not sit beneath another.
+  const linked = new Set(links.map((l) => l.dest));
+  for (const { dest } of links) {
+    for (let dir = path.dirname(dest); dir !== root && dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
+      if (linked.has(dir)) throw new Error(`Archive link ${JSON.stringify(path.relative(root, dest))} sits under another link`);
+    }
+  }
   for (const { dest, target } of links) {
     await ensureDir(path.dirname(dest));
     await symlink(target, dest);

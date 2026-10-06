@@ -66,7 +66,7 @@ export const FRAMEWORK_ROLES = {
     "filter",
     ...GENERIC,
   ],
-  Express: ["router", "controller", "service", "model", "middleware", ...GENERIC],
+  Express: ["router", "controller", "service", "model", ...REACT, "middleware", ...GENERIC],
   React: [...REACT, ...GENERIC],
   none: GENERIC,
 } as const satisfies Record<string, readonly Role[]>;

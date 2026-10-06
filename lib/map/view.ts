@@ -1,4 +1,6 @@
-import type { Edge, FileNode } from "../../parser/types.ts";
+import type { Edge } from "../../parser/types.ts";
+import { UNCLASSIFIED, type RailKey } from "../roles.ts";
+import type { MapFile } from "./types.ts";
 import type { Folding } from "./fold.ts";
 
 // What's on the canvas for a set of open groups, derived from the parser's
@@ -11,7 +13,8 @@ export const MAX_ROWS = 12;
 export const ABOVE_HANDLE = "/above";
 export const BELOW_HANDLE = "/below";
 
-export type Row = { path: string; label: string; fanIn: number; fanOut: number };
+// railKey is the file's role, or UNCLASSIFIED: what the rail's category is matched against.
+export type Row = { path: string; label: string; fanIn: number; fanOut: number; railKey: RailKey };
 
 type Common = { id: string; dir: string; label: string; fileCount: number; fanIn: number; fanOut: number };
 export type FoldedObject = Common & { kind: "folded" };
@@ -41,8 +44,8 @@ export function groupId(dir: string): string {
 }
 
 /**
- * A file's category is its extension: a fact read off the path, not a guess
- * about what the file does.
+ * A file's kind is its extension: a fact read off the path, not a guess about
+ * what the file does. It's what the swatches colour; the rail groups by role.
  */
 export function categoryOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -80,7 +83,7 @@ export function shortestUniqueLabels(paths: readonly string[]): Map<string, stri
 }
 
 /** Most depended-on files first, so an unscrolled panel shows the ones that matter. */
-export function rankFiles(paths: readonly string[], byPath: ReadonlyMap<string, FileNode>): string[] {
+export function rankFiles(paths: readonly string[], byPath: ReadonlyMap<string, MapFile>): string[] {
   return [...paths].sort((a, b) => (byPath.get(b)?.fanIn ?? 0) - (byPath.get(a)?.fanIn ?? 0) || a.localeCompare(b));
 }
 
@@ -95,7 +98,7 @@ export function clampOffset(requested: number, count: number): number {
  * Throws when an edge endpoint is missing from the folding.
  */
 export function buildView(
-  files: readonly FileNode[],
+  files: readonly MapFile[],
   edges: readonly Edge[],
   folding: Folding,
   // Open groups, each with its scroll offset. Clamped here, so any number is safe.
@@ -140,6 +143,7 @@ export function buildView(
         label: rowLabels.get(path) ?? path,
         fanIn: byPath.get(path)?.fanIn ?? 0,
         fanOut: byPath.get(path)?.fanOut ?? 0,
+        railKey: byPath.get(path)?.role ?? UNCLASSIFIED,
       })),
     };
   });

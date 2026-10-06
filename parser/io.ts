@@ -3,7 +3,8 @@
 // field path, not three layers later as a blank map.
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { SCHEMA_VERSION, type Coverage, type Edge, type EdgeKind, type FileNode, type ImportRecord, type ParseResult, type Resolution, type SkipReason } from "./types.ts";
+import { ROLE_IDS } from "../lib/roles.ts";
+import { SCHEMA_VERSION, type Coverage, type Edge, type EdgeKind, type FileNode, type ImportRecord, type DetectedProject, type ParseResult, type Resolution, type Route, type SkipReason } from "./types.ts";
 
 /** Write a parse result as compact JSON, propagating filesystem errors. */
 export function writeParseResult(file: string, result: ParseResult): void {
@@ -56,9 +57,10 @@ function parseResult(v: unknown, at: string): ParseResult {
   if (o.version !== SCHEMA_VERSION) fail(`${at}.version`, String(SCHEMA_VERSION));
   return {
     version: SCHEMA_VERSION,
-    adapter: str(o.adapter, `${at}.adapter`),
+    projects: readProjects(o.projects, `${at}.projects`),
     files: arr(o.files, `${at}.files`, fileNode),
     edges: arr(o.edges, `${at}.edges`, edge),
+    routes: arr(o.routes, `${at}.routes`, route),
     coverage: coverage(o.coverage, `${at}.coverage`),
   };
 }
@@ -74,6 +76,8 @@ function fileNode(v: unknown, at: string): FileNode {
     imports: arr(o.imports, `${at}.imports`, importRecord),
     fanIn: num(o.fanIn, `${at}.fanIn`),
     fanOut: num(o.fanOut, `${at}.fanOut`),
+    reachedBy: o.reachedBy === null ? null : str(o.reachedBy, `${at}.reachedBy`),
+    role: o.role === null ? null : oneOf(o.role, `${at}.role`, ROLE_IDS),
   };
 }
 
@@ -108,6 +112,16 @@ function resolution(v: unknown, at: string): Resolution {
   }
 }
 
+/** Validate a route: an upper-case method and a pattern starting with a slash. */
+function route(v: unknown, at: string): Route {
+  const o = obj(v, at);
+  const method = str(o.method, `${at}.method`);
+  if (!/^[A-Z]+$/.test(method)) fail(`${at}.method`, "upper-case method");
+  const path = str(o.path, `${at}.path`);
+  if (!path.startsWith("/")) fail(`${at}.path`, "pattern starting with /");
+  return { file: str(o.file, `${at}.file`), line: num(o.line, `${at}.line`), method, path };
+}
+
 /** Validate an edge's endpoints and supported import kinds. */
 function edge(v: unknown, at: string): Edge {
   const o = obj(v, at);
@@ -118,11 +132,27 @@ function edge(v: unknown, at: string): Edge {
   };
 }
 
+/** Validate a detected-project list, root first, that arrived from a result file or a stored row. */
+export function readProjects(value: unknown, at: string): DetectedProject[] {
+  const projects = arr(value, at, (p, a) => {
+    const x = obj(p, a);
+    return { path: str(x.path, `${a}.path`), adapter: str(x.adapter, `${a}.adapter`) };
+  });
+  if (projects[0]?.path !== ".") fail(`${at}[0].path`, "the root, \".\", first");
+  return projects;
+}
+
+/** Validate a coverage report that arrived some other way than a result file, such as rebuilt from stored rows. */
+export function readCoverage(value: unknown, at: string): Coverage {
+  return coverage(value, at);
+}
+
 /** Validate file and import counts, skipped files, and ignored directories. */
 function coverage(v: unknown, at: string): Coverage {
   const o = obj(v, at);
   const files = obj(o.files, `${at}.files`);
   const imports = obj(o.imports, `${at}.imports`);
+  const routes = obj(o.routes, `${at}.routes`);
   return {
     files: {
       found: num(files.found, `${at}.files.found`),
@@ -142,6 +172,16 @@ function coverage(v: unknown, at: string): Coverage {
       external: num(imports.external, `${at}.imports.external`),
       excluded: num(imports.excluded, `${at}.imports.excluded`),
       unresolved: num(imports.unresolved, `${at}.imports.unresolved`),
+    },
+    routes: {
+      omitted: arr(routes.omitted, `${at}.routes.omitted`, (r, a) => {
+        const x = obj(r, a);
+        return { file: str(x.file, `${a}.file`), line: num(x.line, `${a}.line`), reason: str(x.reason, `${a}.reason`) };
+      }),
+      withheld: arr(routes.withheld, `${at}.routes.withheld`, (w, a) => {
+        const x = obj(w, a);
+        return { project: str(x.project, `${a}.project`), reason: str(x.reason, `${a}.reason`) };
+      }),
     },
   };
 }

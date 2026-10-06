@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
 import { env } from "./env";
 
-// The only place a Supabase client is built. Clerk owns the session; Supabase
+// The only place a Supabase client is built for reading (the pipeline's writer
+// is in supabase-secret.ts). Clerk owns the session; Supabase
 // just receives the Clerk session token on every request (third-party auth),
 // so policies can read the org claim off auth.jwt(). No Supabase session is
 // stored or refreshed, so there's nothing competing for cookies or the proxy.

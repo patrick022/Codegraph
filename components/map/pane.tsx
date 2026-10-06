@@ -4,8 +4,9 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { Folding } from "@/lib/map/fold";
 import { findInsights, LONG_LINES, reach, REACH_DEPTH, type Direction } from "@/lib/map/graph";
 import { adjacency, categoryLabel, categoryOf, countByCategory, groupFan, groupId, type Selection } from "@/lib/map/view";
-import { adapterNamed } from "@/parser/adapter";
-import type { Edge, FileNode, ParseResult } from "@/parser/types";
+import type { MapData, MapFile } from "@/lib/map/types";
+import { railLabel, UNCLASSIFIED } from "@/lib/roles";
+import type { Edge } from "@/parser/types";
 import { CategorySwatch } from "../swatch";
 
 export type Tab = "structure" | "explanation";
@@ -15,7 +16,7 @@ const SUMMARY_ROWS = 10;
 
 type PaneProps = {
   name: string;
-  result: ParseResult;
+  result: MapData;
   folding: Folding;
   selection: Selection;
   onSelect: (selection: Selection) => void;
@@ -54,7 +55,7 @@ export function DetailPane(props: PaneProps) {
           key={file.path}
           file={file}
           edges={result.edges}
-          reachedBy={adapterNamed(result.adapter).reachedBy(file.path)}
+          reachedBy={file.reachedBy}
           {...(neighbours.get(file.path) ?? { imports: [], importedBy: [] })}
           paths={paths}
         />
@@ -90,13 +91,16 @@ export function DetailPane(props: PaneProps) {
 /** Render repository coverage counts and ranked file lists when nothing is selected. */
 function RepositorySummary(props: {
   name: string;
-  result: ParseResult;
+  result: MapData;
   paths: PathActions;
   insightsOpen: boolean;
   onInsightsOpen: (open: boolean) => void;
 }) {
   const { name, result, paths } = props;
-  const { files, edges, coverage, adapter } = result;
+  const { files, edges, coverage, projects, routes } = result;
+  const rootAdapter = projects[0]?.adapter ?? "none";
+  const nested = projects.filter((p) => p.path !== "." && p.adapter !== "none");
+  const byConvention = useMemo(() => files.filter((f) => f.reachedBy !== null).length, [files]);
   const mostImported = useMemo(
     () => files.filter((f) => f.fanIn > 0).sort((a, b) => b.fanIn - a.fanIn || a.path.localeCompare(b.path)),
     [files],
@@ -114,8 +118,14 @@ function RepositorySummary(props: {
       <header className="border-b border-border px-3 py-2">
         <h2 className="font-mono text-[13px] font-semibold break-all">{name}</h2>
         <p className="mt-0.5 text-[11px] text-muted">
-          Framework <span className="text-fg">{adapter === "none" ? "none detected" : adapter}</span>
+          Framework <span className="text-fg">{rootAdapter === "none" ? "none detected" : rootAdapter}</span>
+          {nested.length > 0 && " at the root"}
         </p>
+        {nested.map((p) => (
+          <p key={p.path} className="text-[11px] text-muted">
+            <span className="text-fg">{p.adapter}</span> in <span className="font-mono">{p.path}/</span>
+          </p>
+        ))}
       </header>
 
       <dl className="grid grid-cols-3 border-b border-border">
@@ -126,12 +136,11 @@ function RepositorySummary(props: {
           note={unresolved > 0 ? `${unresolved} unresolved` : null}
           title="Distinct file-to-file imports resolved inside this repository"
         />
-        {/* No adapter recovers routes yet, and zero would claim one looked. */}
         <Count
           label="Routes"
-          value={null}
-          note={adapter === "none" ? "no adapter" : null}
-          title="No framework adapter recovered routes for this repository"
+          value={routes.length}
+          note={null}
+          title="Routes whose method and full path are both written in the code"
         />
       </dl>
 
@@ -150,13 +159,14 @@ function RepositorySummary(props: {
         paths={paths}
       />
 
-      {/* The fallback adapter knows no conventions, so it identifies nothing. */}
       <section className="mt-3 px-3">
         <h3 className="flex items-baseline justify-between text-[11px] text-muted">
           <span>Unidentified by convention</span>
-          <span className="text-fg tabular-nums">{adapter === "none" ? files.length : "—"}</span>
+          <span className="text-fg tabular-nums">{files.length - byConvention}</span>
         </h3>
-        <p className="mt-0.5 text-[11px] text-muted">No framework adapter applied, so no file was matched to a role.</p>
+        <p className="mt-0.5 text-[11px] text-muted tabular-nums">
+          {byConvention} matched a framework, tool or test convention; only imports reach the rest.
+        </p>
       </section>
 
       <Insights result={result} paths={paths} open={props.insightsOpen} onOpen={props.onInsightsOpen} />
@@ -166,11 +176,11 @@ function RepositorySummary(props: {
 
 // Facts about the edge list, never a verdict on the code: collapsed until
 // asked for, last in the summary, and each kind says one fixed sentence.
-function Insights(props: { result: ParseResult; paths: PathActions; open: boolean; onOpen: (open: boolean) => void }) {
-  const { files, edges, adapter } = props.result;
+function Insights(props: { result: MapData; paths: PathActions; open: boolean; onOpen: (open: boolean) => void }) {
+  const { files, edges } = props.result;
   const insights = useMemo(
-    () => (props.open ? findInsights(files, edges, adapterNamed(adapter).reachedBy) : null),
-    [props.open, files, edges, adapter],
+    () => (props.open ? findInsights(files, edges) : null),
+    [props.open, files, edges],
   );
   return (
     <section className="mt-3 border-t border-border">
@@ -246,8 +256,8 @@ function InsightSentence({ children }: { children: ReactNode }) {
 function InsightFiles(props: {
   title: string;
   sentence: string;
-  files: FileNode[];
-  figure: (file: FileNode) => ReactNode;
+  files: MapFile[];
+  figure: (file: MapFile) => ReactNode;
   paths: PathActions;
 }) {
   return (
@@ -278,8 +288,8 @@ function Count({ label, value, note, title }: { label: string; value: number | n
 function RankedList(props: {
   title: string;
   hint: string;
-  files: FileNode[];
-  figure: (file: FileNode) => ReactNode;
+  files: MapFile[];
+  figure: (file: MapFile) => ReactNode;
   paths: PathActions;
 }) {
   const shown = props.files.slice(0, SUMMARY_ROWS);
@@ -370,7 +380,7 @@ function FileStructure({
   importedBy,
   paths,
 }: {
-  file: FileNode;
+  file: MapFile;
   edges: Edge[];
   reachedBy: string | null;
   imports: string[];
@@ -387,6 +397,9 @@ function FileStructure({
             <CategorySwatch category={category} />
             {categoryLabel(category)}
           </span>
+        </Fact>
+        <Fact label="Role">
+          {file.role === null ? <span className="text-muted">{railLabel(UNCLASSIFIED).toLowerCase()}</span> : railLabel(file.role)}
         </Fact>
         <Fact label="Folder">
           <span className="font-mono break-all">{file.folder}</span>

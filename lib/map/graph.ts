@@ -1,4 +1,5 @@
-import type { Edge, FileNode } from "../../parser/types.ts";
+import type { Edge } from "../../parser/types.ts";
+import type { MapFile } from "./types.ts";
 
 // Arithmetic over the edge list. Pure, and fast enough to run on a click.
 
@@ -140,17 +141,16 @@ function shortestLoop(start: string, group: ReadonlySet<string>, next: ReadonlyM
 
 export type Insights = {
   // Nothing imports these and no convention reaches them either.
-  unimported: FileNode[];
+  unimported: MapFile[];
   // Imported by unusually many files.
-  heavilyImported: FileNode[];
+  heavilyImported: MapFile[];
   cycles: Cycle[];
-  long: FileNode[];
+  long: MapFile[];
 };
 
 export function findInsights(
-  files: readonly FileNode[],
+  files: readonly MapFile[],
   edges: readonly Edge[],
-  reachedBy: (path: string) => string | null,
 ): Insights {
   // Tukey's far-out fence, over files imported at all: an outlier among the
   // things that get imported, not among every file. Counting the never-imported
@@ -161,7 +161,7 @@ export function findInsights(
 
   return {
     unimported: files
-      .filter((f) => f.fanIn === 0 && reachedBy(f.path) === null)
+      .filter((f) => f.fanIn === 0 && f.reachedBy === null)
       .sort((a, b) => a.path.localeCompare(b.path)),
     heavilyImported: files
       .filter((f) => fanIns.length > 0 && f.fanIn > fence)

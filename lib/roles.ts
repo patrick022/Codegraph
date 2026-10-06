@@ -11,6 +11,7 @@ export const ROLES = [
   { id: "page-route", label: "Page routes" },
   { id: "api-endpoint", label: "API endpoints" },
   { id: "server-action", label: "Server actions" },
+  { id: "router", label: "Routers" },
   { id: "controller", label: "Controllers" },
   { id: "resolver", label: "Resolvers" },
   { id: "gateway", label: "Gateways" },
@@ -20,6 +21,7 @@ export const ROLES = [
   { id: "service", label: "Services" },
   { id: "module", label: "Modules" },
   { id: "entity", label: "Entities" },
+  { id: "model", label: "Models" },
   { id: "dto", label: "DTOs" },
   { id: "repository", label: "Repositories" },
   { id: "component", label: "Components" },
@@ -64,6 +66,7 @@ export const FRAMEWORK_ROLES = {
     "filter",
     ...GENERIC,
   ],
+  Express: ["router", "controller", "service", "model", "middleware", ...GENERIC],
   React: [...REACT, ...GENERIC],
   none: GENERIC,
 } as const satisfies Record<string, readonly Role[]>;

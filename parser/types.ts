@@ -3,9 +3,9 @@
 
 import type { Role } from "../lib/roles.ts";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
-export type EdgeKind = "import" | "re-export" | "dynamic-import";
+export type EdgeKind = "import" | "re-export" | "dynamic-import" | "require";
 
 export type Resolution =
   // A real file inside the repository that is also a node in `files`.
@@ -38,6 +38,10 @@ export type FileNode = {
   reachedBy: string | null;
   // The role a convention of its project's adapter gives it. Null when none does; never a guess.
   role: Role | null;
+  // The names this file exports, ESM and CommonJS alike, as written in it, in
+  // source order. `export * from` adds nothing here: which names it passes on
+  // lives in the other file, a re-export edge away.
+  exports: string[];
 };
 
 // One per (from, to) pair, however many times or ways `from` imports `to`.

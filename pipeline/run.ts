@@ -199,7 +199,7 @@ async function store(db: SecretClient, claimed: ClaimedRun, result: ParseResult)
   };
 
   const files: Database["public"]["Tables"]["files"]["Insert"][] = [
-    ...result.files.map((f) => ({ ...scope, id: assign(f.path), path: f.path, lines: f.lines, hash: f.hash, reached_by: f.reachedBy })),
+    ...result.files.map((f) => ({ ...scope, id: assign(f.path), path: f.path, lines: f.lines, hash: f.hash, reached_by: f.reachedBy, exports: f.exports })),
     ...result.coverage.files.skipped.map((s) => ({
       ...scope,
       id: assign(s.path),

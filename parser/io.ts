@@ -16,7 +16,7 @@ export function readParseResult(file: string): ParseResult {
   return parseResult(JSON.parse(readFileSync(file, "utf8")), "$");
 }
 
-const EDGE_KINDS = ["import", "re-export", "dynamic-import"] as const satisfies readonly EdgeKind[];
+const EDGE_KINDS = ["import", "re-export", "dynamic-import", "require"] as const satisfies readonly EdgeKind[];
 const SKIP_REASONS = ["declaration-file", "syntax-error", "unreadable", "symlink"] as const satisfies readonly SkipReason[];
 
 /** Throw a validation error identifying the field path and expected value. */
@@ -78,6 +78,7 @@ function fileNode(v: unknown, at: string): FileNode {
     fanOut: num(o.fanOut, `${at}.fanOut`),
     reachedBy: o.reachedBy === null ? null : str(o.reachedBy, `${at}.reachedBy`),
     role: o.role === null ? null : oneOf(o.role, `${at}.role`, ROLE_IDS),
+    exports: arr(o.exports, `${at}.exports`, str),
   };
 }
 

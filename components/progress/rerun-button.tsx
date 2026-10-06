@@ -14,13 +14,13 @@ export function RerunButton({ analysisId, onStarted }: { analysisId: string; onS
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
-            // A rejected action (network gone, server down) would otherwise
-            // escape the transition to the error boundary and take the page.
+            // A rejected action would otherwise escape the transition to the
+            // error boundary and take the page. Why it was rejected isn't known here.
             let result: Awaited<ReturnType<typeof rerunAnalysis>>;
             try {
               result = await rerunAnalysis(analysisId);
             } catch {
-              setError("Couldn't reach the server to start a re-run.");
+              setError("Couldn't start a re-run");
               return;
             }
             setError(result.error);

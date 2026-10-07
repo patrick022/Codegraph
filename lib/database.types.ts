@@ -16,6 +16,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_cache: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          key: string
+          model: string
+          organization_id: string
+          task: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          key: string
+          model: string
+          organization_id: string
+          task: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          key?: string
+          model?: string
+          organization_id?: string
+          task?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_cache_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analyses: {
         Row: {
           commit_sha: string | null
@@ -135,48 +173,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "files"
             referencedColumns: ["id", "organization_id"]
-          },
-        ]
-      }
-      explanations: {
-        Row: {
-          body: string
-          created_at: string
-          file_id: string
-          id: string
-          model: string
-          organization_id: string
-        }
-        Insert: {
-          body: string
-          created_at?: string
-          file_id: string
-          id?: string
-          model: string
-          organization_id: string
-        }
-        Update: {
-          body?: string
-          created_at?: string
-          file_id?: string
-          id?: string
-          model?: string
-          organization_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "explanations_file_id_organization_id_fkey"
-            columns: ["file_id", "organization_id"]
-            isOneToOne: false
-            referencedRelation: "files"
-            referencedColumns: ["id", "organization_id"]
-          },
-          {
-            foreignKeyName: "explanations_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
           },
         ]
       }

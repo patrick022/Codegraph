@@ -48,11 +48,12 @@ export async function explainFileAction(analysisId: string, path: string): Promi
     if (input.role === null) {
       try {
         const { role } = await classifyFile(loaded.classify, { cache, source });
-        labelled = { role };
+        // Reported only once stored: a role that failed to save isn't one the map has.
         if (role !== null) {
           await storeModelRole(analysis.organizationId, loaded.file.id, role);
           input.role = role;
         }
+        labelled = { role };
       } catch (error) {
         labelError = messageOf(error);
       }

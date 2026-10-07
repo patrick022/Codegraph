@@ -1,13 +1,12 @@
 "use server";
 
-import { createHash } from "node:crypto";
 import { tracingStatus, type TracingStatus } from "@/lib/ai/client";
 import { loadFileInput, loadFolderInput } from "@/lib/ai/context";
 import { classifyFile, explainFile, explainFolder, type Cache } from "@/lib/ai/tasks";
 import { isModelRole, type ModelRole } from "@/lib/roles";
 import { supabase } from "@/lib/supabase";
 import { supabaseSecret } from "@/lib/supabase-secret";
-import { fileAt, headCommit, type Repository } from "@/pipeline/archive";
+import { fileAt, headCommit, sha256, sourceAt, type Repository } from "@/pipeline/archive";
 
 export type ExplainResult =
   | {
@@ -175,24 +174,10 @@ async function storeModelRole(
   return { role: data.role, source: "model" };
 }
 
-// Fetched at most once per request, and only if a cache miss needs it. The
-// bytes must be the ones the parser read; if GitHub's copy hashes differently,
-// explaining it would describe code that isn't on the map.
+// Fetched at most once per request, and only if a cache miss needs it.
 function sourceAtAnalysedCommit(analysis: Analysis, path: string, hash: string): () => Promise<string> {
   let pending: Promise<string> | null = null;
-  return () => {
-    pending ??= (async () => {
-      const bytes = await fileAt(analysis.repository, analysis.commitSha, path);
-      if (bytes === null) throw new Error(`GitHub has no ${path} at ${analysis.commitSha.slice(0, 7)}, the commit that was analysed`);
-      if (sha256(bytes) !== hash) throw new Error(`GitHub's copy of ${path} at ${analysis.commitSha.slice(0, 7)} isn't what was parsed`);
-      return bytes.toString("utf8");
-    })();
-    return pending;
-  };
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash("sha256").update(bytes).digest("hex");
+  return () => (pending ??= sourceAt(analysis.repository, analysis.commitSha, path, hash));
 }
 
 function messageOf(error: unknown): string {

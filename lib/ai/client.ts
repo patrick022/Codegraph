@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { Client } from "langsmith";
 import { wrapOpenAI } from "langsmith/wrappers/openai";
 
 // The one place the AI client is constructed. A client built anywhere else
@@ -32,6 +33,14 @@ export function ai(): OpenAI {
   if (!apiKey) throw new Error("OPENAI_API_KEY isn't set in .env.local, so nothing can be explained");
   client = wrapOpenAI(new OpenAI({ apiKey }), { tracingEnabled: tracingStatus().on });
   return client;
+}
+
+let tracer: Client | null = null;
+
+// Where scores on traced runs are written. Only asked for with tracing on.
+export function langsmith(): Client {
+  tracer ??= new Client();
+  return tracer;
 }
 
 /**

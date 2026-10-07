@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { traceable } from "langsmith/traceable";
+import { getCurrentRunTree, traceable } from "langsmith/traceable";
 import { isModelRole, MODEL_ROLES, type ModelRole } from "../roles.ts";
-import { ai, MODELS, traceConfig } from "./client.ts";
+import { ai, langsmith, MODELS, traceConfig, tracingStatus } from "./client.ts";
+import { inventedPaths, shownPaths, type ShownInput } from "./invented-paths.ts";
 import {
   CLASSIFY_SYSTEM,
   classifyMessage,
@@ -44,10 +45,10 @@ export async function explainFile(input: FileInput, deps: { cache: Cache; source
   const run = traceable(async (question: FileInput): Promise<Explanation> => {
     const key = cacheKey("explain-file", model, question);
     const hit = await deps.cache.read(key);
-    if (hit !== null) return { body: hit, model, cached: true };
-    const body = await complete(model, EXPLAIN_FILE_SYSTEM, explainFileMessage(question, capped(await deps.source())));
+    if (hit !== null) return scored(question, { body: hit, model, cached: true });
+    const body = await askExplainFile(EXPLAIN_FILE_SYSTEM, question, await deps.source());
     await deps.cache.write({ key, task: "explain-file", model, body });
-    return { body, model, cached: false };
+    return scored(question, { body, model, cached: false });
   }, traceConfig("explain-file"));
   return run(input);
 }
@@ -57,10 +58,10 @@ export async function explainFolder(input: FolderInput, deps: { cache: Cache }):
   const run = traceable(async (question: FolderInput): Promise<Explanation> => {
     const key = cacheKey("explain-folder", model, question);
     const hit = await deps.cache.read(key);
-    if (hit !== null) return { body: hit, model, cached: true };
+    if (hit !== null) return scored(question, { body: hit, model, cached: true });
     const body = await complete(model, EXPLAIN_FOLDER_SYSTEM, explainFolderMessage(question));
     await deps.cache.write({ key, task: "explain-folder", model, body });
-    return { body, model, cached: false };
+    return scored(question, { body, model, cached: false });
   }, traceConfig("explain-folder"));
   return run(input);
 }
@@ -78,35 +79,67 @@ export async function classifyFile(
     const key = cacheKey("classify-file", model, question);
     const hit = await deps.cache.read(key);
     if (hit !== null) return { role: parseRole(hit), cached: true };
-    const excerpt = (await deps.source()).split("\n").slice(0, EXCERPT_LINES).join("\n");
-    const response = await ai().chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: CLASSIFY_SYSTEM },
-        { role: "user", content: classifyMessage(question, excerpt) },
-      ],
-      reasoning_effort: "low",
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "file_role",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: { role: { type: "string", enum: [...MODEL_ROLES, NONE] } },
-            required: ["role"],
-            additionalProperties: false,
-          },
-        },
-      },
-    });
-    const answer = readRole(response.choices[0]?.message.content ?? null);
+    const answer = await askRole(question, await deps.source());
     // Parsed before caching, so a refused answer is never stored and served.
     const role = parseRole(answer);
     await deps.cache.write({ key, task: "classify-file", model, body: answer });
     return { role, cached: false };
   }, traceConfig("classify-file"));
   return run(input);
+}
+
+/** The model's role for a file, as answered: one of MODEL_ROLES or "none". */
+export async function askRole(question: ClassifyInput, source: string): Promise<string> {
+  const excerpt = source.split("\n").slice(0, EXCERPT_LINES).join("\n");
+  const response = await ai().chat.completions.create({
+    model: MODELS.classify,
+    messages: [
+      { role: "system", content: CLASSIFY_SYSTEM },
+      { role: "user", content: classifyMessage(question, excerpt) },
+    ],
+    reasoning_effort: "low",
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "file_role",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: { role: { type: "string", enum: [...MODEL_ROLES, NONE] } },
+          required: ["role"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  return readRole(response.choices[0]?.message.content ?? null);
+}
+
+/** A file explained under a given system prompt: the evals compare prompts through this. */
+export function askExplainFile(system: string, input: FileInput, source: string): Promise<string> {
+  return complete(MODELS.explain, system, explainFileMessage(input, capped(source)));
+}
+
+export const INVENTED_PATHS_KEY = "no-invented-paths";
+
+/** 1 when every path-shaped token was one the model was shown, else 0, naming the others. */
+export function inventedPathsScore(input: ShownInput, body: string): { key: string; score: number; comment: string } {
+  const invented = inventedPaths(body, shownPaths(input));
+  return { key: INVENTED_PATHS_KEY, score: invented.length ? 0 : 1, comment: invented.length ? `not shown: ${invented.join(", ")}` : "every path was shown" };
+}
+
+// The live evaluator: every answer shown, cached or not, is scored on its own
+// run. Not awaited, so an answer is never held back for its score; a score that
+// fails to save is logged rather than lost silently.
+function scored(input: ShownInput, answer: Explanation): Explanation {
+  const run = getCurrentRunTree(true);
+  if (run && tracingStatus().on) {
+    const { key, score, comment } = inventedPathsScore(input, answer.body);
+    langsmith()
+      .createFeedback(run.id, key, { score, comment })
+      .catch((error: unknown) => console.error(`Scoring run ${run.id} for invented paths failed:`, error));
+  }
+  return answer;
 }
 
 function parseRole(answer: string): ModelRole | null {

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { tracingStatus, type TracingStatus } from "@/lib/ai/client";
 import { loadFileInput, loadFolderInput } from "@/lib/ai/context";
 import { classifyFile, explainFile, explainFolder, type Cache } from "@/lib/ai/tasks";
-import type { ModelRole } from "@/lib/roles";
+import { isModelRole, type ModelRole } from "@/lib/roles";
 import { supabase } from "@/lib/supabase";
 import { supabaseSecret } from "@/lib/supabase-secret";
 import { fileAt, headCommit, type Repository } from "@/pipeline/archive";
@@ -48,12 +48,15 @@ export async function explainFileAction(analysisId: string, path: string): Promi
     if (input.role === null) {
       try {
         const { role } = await classifyFile(loaded.classify, { cache, source });
-        // Reported only once stored: a role that failed to save isn't one the map has.
+        // Reported only once stored, and as stored: a role that failed to save,
+        // or lost to one another request saved first, isn't the one the map has.
         if (role !== null) {
-          await storeModelRole(analysis.organizationId, loaded.file.id, role);
-          input.role = role;
+          const stored = await storeModelRole(analysis.organizationId, loaded.file.id, role);
+          input.role = stored.role;
+          labelled = stored.source === "model" ? { role: stored.role } : null;
+        } else {
+          labelled = { role: null };
         }
-        labelled = { role };
       } catch (error) {
         labelError = messageOf(error);
       }
@@ -149,12 +152,27 @@ function cacheFor(db: Db, organizationId: string): Cache {
   };
 }
 
-async function storeModelRole(organizationId: string, fileId: string, role: ModelRole): Promise<void> {
-  // A convention role is never replaced: the file only reaches here without one.
-  const { error } = await supabaseSecret()
+/**
+ * Store the model's role unless the file already has one, and return whatever
+ * the file's role row holds afterwards. An existing row is never replaced, so
+ * that may be another request's label rather than this one.
+ */
+async function storeModelRole(
+  organizationId: string,
+  fileId: string,
+  role: ModelRole,
+): Promise<{ role: ModelRole; source: "model" } | { role: string; source: "convention" }> {
+  const db = supabaseSecret();
+  const { error } = await db
     .from("file_roles")
     .upsert({ organization_id: organizationId, file_id: fileId, role, source: "model" }, { onConflict: "file_id", ignoreDuplicates: true });
   if (error) throw new Error(`Storing the role failed: ${error.message}`);
+  const { data, error: readError } = await db.from("file_roles").select("role, source").eq("file_id", fileId).single();
+  if (readError) throw new Error(`Reading back the stored role failed: ${readError.message}`);
+  if (data.source === "convention") return { role: data.role, source: "convention" };
+  // The table's check constraint already refuses anything else; this keeps the type honest.
+  if (data.source !== "model" || !isModelRole(data.role)) throw new Error(`The stored role "${data.role}" (${data.source}) isn't one a model may give`);
+  return { role: data.role, source: "model" };
 }
 
 // Fetched at most once per request, and only if a cache miss needs it. The

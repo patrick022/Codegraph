@@ -4,6 +4,7 @@
 //   pnpm analyze <github url> --org <clerk org id>           submit; run only if new
 //   pnpm analyze <github url> --org <clerk org id> --rerun   run it again either way
 
+import "./env.ts";
 import { parseRepositoryUrl } from "../pipeline/archive.ts";
 import { claimAnalysis, runAnalysis, submitRepository } from "../pipeline/run.ts";
 import { supabaseSecret } from "../lib/supabase-secret.ts";

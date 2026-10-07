@@ -1,6 +1,7 @@
 // A public GitHub repository, fetched as the archive GitHub serves anyone. No
 // token, no API, no repository scope: if it isn't public, it isn't reachable.
 
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -90,6 +91,22 @@ export async function fileAt({ owner, name }: Repository, commit: string, file: 
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub answered ${res.status} for ${file} at ${commit.slice(0, 7)}`);
   return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * A file's text at a commit, only if its bytes are the ones the parser read:
+ * if GitHub's copy hashes differently, explaining it would describe code that
+ * isn't on the map.
+ */
+export async function sourceAt(repo: Repository, commit: string, file: string, hash: string): Promise<string> {
+  const bytes = await fileAt(repo, commit, file);
+  if (bytes === null) throw new Error(`GitHub has no ${file} at ${commit.slice(0, 7)}, the commit that was analysed`);
+  if (sha256(bytes) !== hash) throw new Error(`GitHub's copy of ${file} at ${commit.slice(0, 7)} isn't what was parsed`);
+  return bytes.toString("utf8");
+}
+
+export function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 async function download(repo: Repository) {

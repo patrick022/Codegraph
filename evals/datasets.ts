@@ -42,8 +42,9 @@ export async function ensureDataset(name: string, description: string, build: ()
   const client = langsmith();
   const exists = await client.hasDataset({ datasetName: name });
   if (exists && !process.argv.includes("--rebuild")) return;
-  if (exists) await client.deleteDataset({ datasetName: name });
+  // Built before anything is deleted, so a build that fails leaves the old dataset in place.
   const examples = await build();
+  if (exists) await client.deleteDataset({ datasetName: name });
   const dataset = await client.createDataset(name, { description });
   await client.createExamples(examples.map((e) => ({ ...e, dataset_id: dataset.id })));
   console.log(`Built dataset ${name}: ${examples.length} examples`);
@@ -57,16 +58,18 @@ export async function ensureDataset(name: string, description: string, build: ()
 export async function buildRoleExamples(): Promise<ExampleCreate[]> {
   const examples: ExampleCreate[] = [];
   for (const analysis of await latestAnalyses()) {
-    const { data, error } = await db
-      .from("files")
-      .select("path, hash, file_roles!inner(role, source)")
-      .eq("analysis_id", analysis.id)
-      .is("skip_reason", null)
-      .eq("file_roles.source", "convention")
-      .in("file_roles.role", [...MODEL_ROLES])
-      .order("path");
-    if (error) throw new Error(`Reading the roles of ${name(analysis)} failed: ${error.message}`);
-    for (const file of data) {
+    const files = await readAll((from, to) =>
+      db
+        .from("files")
+        .select("path, hash, file_roles!inner(role, source)")
+        .eq("analysis_id", analysis.id)
+        .is("skip_reason", null)
+        .eq("file_roles.source", "convention")
+        .in("file_roles.role", [...MODEL_ROLES])
+        .order("path")
+        .range(from, to),
+    );
+    for (const file of files) {
       const role = MODEL_ROLES.find((r) => r === file.file_roles[0]?.role);
       if (!role || file.hash === null) throw new Error(`${file.path} came back without the role or hash it was selected by`);
       const loaded = await loadFileInput(db, analysis.id, file.path);

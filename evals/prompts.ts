@@ -15,7 +15,7 @@ import { evaluate } from "langsmith/evaluation";
 import type { KVMap } from "langsmith/schemas";
 import { ai, MODELS } from "../lib/ai/client.ts";
 import { EXPLAIN_FILE_SYSTEM, explainFileMessage, PROMPT_VERSION } from "../lib/ai/prompts.ts";
-import { askExplainFile, INVENTED_PATHS_KEY, inventedPathsScore } from "../lib/ai/tasks.ts";
+import { askExplainFile, capped, INVENTED_PATHS_KEY, inventedPathsScore } from "../lib/ai/tasks.ts";
 import { buildExplainExamples, ensureDataset, EXPLAIN_DATASET, explainExample, type ExplainExample } from "./datasets.ts";
 import { EXPLAIN_FILE_SYSTEM_V0 } from "./retired-prompts.ts";
 
@@ -57,7 +57,10 @@ for (const version of VERSIONS) {
       metadata: { prompt: version.label, model: MODELS.explain, judge: JUDGE_MODEL },
       maxConcurrency: 4,
       evaluators: [
-        ({ inputs, outputs }: { inputs: KVMap; outputs: KVMap }) => inventedPathsScore(explainExample(inputs).question, bodyOf(outputs)),
+        ({ inputs, outputs }: { inputs: KVMap; outputs: KVMap }) => {
+          const { question, source } = explainExample(inputs);
+          return inventedPathsScore(question, bodyOf(outputs), capped(source));
+        },
         async ({ inputs, outputs }: { inputs: KVMap; outputs: KVMap }) => {
           const { question, source } = explainExample(inputs);
           return judge(question, source, bodyOf(outputs));
@@ -92,6 +95,13 @@ for (const version of VERSIONS) {
 }
 
 const [current, retired] = tallies;
+// A rate over nothing is no rate; an empty experiment fails instead of printing NaN.
+for (const t of tallies) {
+  if (t.total === 0) {
+    console.error(`FAIL ${t.label} scored no examples, so there is nothing to compare`);
+    process.exit(1);
+  }
+}
 console.log("");
 for (const t of tallies) {
   console.log(

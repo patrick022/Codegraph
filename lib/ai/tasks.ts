@@ -45,10 +45,11 @@ export async function explainFile(input: FileInput, deps: { cache: Cache; source
   const run = traceable(async (question: FileInput): Promise<Explanation> => {
     const key = cacheKey("explain-file", model, question);
     const hit = await deps.cache.read(key);
-    if (hit !== null) return scored(question, { body: hit, model, cached: true });
-    const body = await askExplainFile(EXPLAIN_FILE_SYSTEM, question, await deps.source());
+    if (hit !== null) return { body: hit, model, cached: true };
+    const source = await deps.source();
+    const body = await askExplainFile(EXPLAIN_FILE_SYSTEM, question, source);
     await deps.cache.write({ key, task: "explain-file", model, body });
-    return scored(question, { body, model, cached: false });
+    return scored({ body, model, cached: false }, question, capped(source));
   }, traceConfig("explain-file"));
   return run(input);
 }
@@ -58,10 +59,10 @@ export async function explainFolder(input: FolderInput, deps: { cache: Cache }):
   const run = traceable(async (question: FolderInput): Promise<Explanation> => {
     const key = cacheKey("explain-folder", model, question);
     const hit = await deps.cache.read(key);
-    if (hit !== null) return scored(question, { body: hit, model, cached: true });
+    if (hit !== null) return { body: hit, model, cached: true };
     const body = await complete(model, EXPLAIN_FOLDER_SYSTEM, explainFolderMessage(question));
     await deps.cache.write({ key, task: "explain-folder", model, body });
-    return scored(question, { body, model, cached: false });
+    return scored({ body, model, cached: false }, question);
   }, traceConfig("explain-folder"));
   return run(input);
 }
@@ -122,19 +123,24 @@ export function askExplainFile(system: string, input: FileInput, source: string)
 
 export const INVENTED_PATHS_KEY = "no-invented-paths";
 
-/** 1 when every path-shaped token was one the model was shown, else 0, naming the others. */
-export function inventedPathsScore(input: ShownInput, body: string): { key: string; score: number; comment: string } {
-  const invented = inventedPaths(body, shownPaths(input));
+/**
+ * 1 when every path-shaped token was one the model was shown, else 0, naming
+ * the others. `source` is the file's source exactly as sent, already capped.
+ */
+export function inventedPathsScore(input: ShownInput, body: string, source?: string): { key: string; score: number; comment: string } {
+  const invented = inventedPaths(body, shownPaths(input, source));
   return { key: INVENTED_PATHS_KEY, score: invented.length ? 0 : 1, comment: invented.length ? `not shown: ${invented.join(", ")}` : "every path was shown" };
 }
 
-// The live evaluator: every answer shown, cached or not, is scored on its own
-// run. Not awaited, so an answer is never held back for its score; a score that
-// fails to save is logged rather than lost silently.
-function scored(input: ShownInput, answer: Explanation): Explanation {
+// The live evaluator: every answer is scored on the run where the model wrote
+// it, which is also the trace that holds exactly what it was shown. A cache hit
+// repeats an answer already scored there, so it isn't scored again. Not
+// awaited, so an answer is never held back for its score; a score that fails
+// to save is logged rather than lost silently.
+function scored(answer: Explanation, input: ShownInput, source?: string): Explanation {
   const run = getCurrentRunTree(true);
   if (run && tracingStatus().on) {
-    const { key, score, comment } = inventedPathsScore(input, answer.body);
+    const { key, score, comment } = inventedPathsScore(input, answer.body, source);
     langsmith()
       .createFeedback(run.id, key, { score, comment })
       .catch((error: unknown) => console.error(`Scoring run ${run.id} for invented paths failed:`, error));
@@ -173,7 +179,8 @@ async function complete(model: string, system: string, user: string): Promise<st
   return body;
 }
 
-function capped(source: string): string {
+/** The source as the model is sent it. */
+export function capped(source: string): string {
   if (source.length <= MAX_SOURCE_CHARS) return source;
   const kept = source.slice(0, MAX_SOURCE_CHARS);
   return `${kept}\n[… source truncated here: ${source.length - MAX_SOURCE_CHARS} more characters not shown]`;

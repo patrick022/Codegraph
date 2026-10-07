@@ -4,9 +4,11 @@
 //   pnpm eval:paths <run id> <file>     check the text in <file> against what that run's
 //                                       model was shown; exits 1 if it names anything else
 //
-// The app already scores every explanation as it's given (the run's
-// "no-invented-paths" feedback). This reads the same runs back, so the score
-// and every flagged path can be checked against the trace by hand.
+// The app already scores every answer the model writes (the run's
+// "no-invented-paths" feedback). This reads the same runs back and checks them
+// again from the trace alone: the listed paths from the run's input, the
+// source from the model call under it. A cache hit repeats an answer scored
+// where it was written, so hits are counted and skipped.
 
 import "../scripts/env.ts";
 import { readFileSync } from "node:fs";
@@ -29,7 +31,11 @@ if (runId) {
     console.error("usage: pnpm eval:paths <run id> <file with the explanation text>");
     process.exit(1);
   }
-  const run = await client.readRun(runId);
+  const run = await client.readRun(runId, { loadChildRuns: true });
+  if (run.outputs?.cached === true) {
+    console.error(`FAIL run ${runId} is a cache hit; check the run where that answer was written`);
+    process.exit(1);
+  }
   const shown = shownOf(run);
   const invented = inventedPaths(readFileSync(file, "utf8"), shown);
   console.log(`${run.name} of ${subject(run)}: the model was shown ${shown.size} paths`);
@@ -40,6 +46,7 @@ if (runId) {
 
 let total = 0;
 let clean = 0;
+let hits = 0;
 const flagged: string[] = [];
 for await (const run of client.listRuns({
   projectName: status.project,
@@ -50,21 +57,41 @@ for await (const run of client.listRuns({
 })) {
   const body: unknown = run.outputs?.body;
   if (typeof body !== "string") throw new Error(`Run ${run.id} finished without an explanation`);
-  const invented = inventedPaths(body, shownOf(run));
+  if (run.outputs?.cached === true) {
+    hits++;
+    continue;
+  }
+  const invented = inventedPaths(body, shownOf(await client.readRun(run.id, { loadChildRuns: true })));
   total++;
   if (invented.length === 0) clean++;
   else flagged.push(`${run.id}  ${run.name} of ${subject(run)}\n    ${invented.join("\n    ")}`);
 }
 
-console.log(`project ${status.project}, the ${total} most recent explanations`);
+console.log(`project ${status.project}, ${total} answers among the ${total + hits} most recent explanations (${hits} cache hits, scored where first written)`);
 for (const f of flagged) console.log(f);
 console.log(`no invented paths  ${clean}/${total}  ${total ? ((100 * clean) / total).toFixed(1) : "–"}%`);
 
-// A run's inputs are the explanation's input as traced; only its paths are read.
+// A run's inputs are the explanation's input as traced; only its paths are
+// read. A file's source is read from the model call under it, as sent.
 function shownOf(run: Run): Set<string> {
   const input = asShownInput(run.inputs);
   if (!input) throw new Error(`Run ${run.id} (${run.name}) isn't an explanation: its inputs have no paths to check against`);
-  return shownPaths(input);
+  if ("dir" in input) return shownPaths(input);
+  return shownPaths(input, sentSource(run, input.path));
+}
+
+// The user message ends with the source between markers (see explainFileMessage).
+function sentSource(run: Run, path: string): string {
+  const call = run.child_runs?.find((c) => c.run_type === "llm");
+  const messages: unknown = call?.inputs.messages;
+  const user = Array.isArray(messages) ? messages.find((m) => isRecord(m) && m.role === "user") : undefined;
+  const content: unknown = isRecord(user) ? user.content : undefined;
+  if (typeof content !== "string") throw new Error(`Run ${run.id} has no model call holding the message it was sent`);
+  const open = `Source of ${path}:\n<<<\n`;
+  const start = content.indexOf(open);
+  const end = content.lastIndexOf("\n>>>");
+  if (start === -1 || end < start) throw new Error(`Run ${run.id}'s message has no source for ${path}`);
+  return content.slice(start + open.length, end);
 }
 
 function subject(run: Run): string {

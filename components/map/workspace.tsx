@@ -1,30 +1,108 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  explainFileAction,
+  explainFolderAction,
+  fileAtHeadAction,
+  repositoryHeadAction,
+  type HeadResult,
+} from "@/app/(workspace)/analyses/[id]/actions";
 import { foldDirectories } from "@/lib/map/fold";
 import type { Selection } from "@/lib/map/view";
 import type { MapData } from "@/lib/map/types";
-import { railCategories, railLabel, type RailKey } from "@/lib/roles";
+import { railCategories, railLabel, type ModelRole, type RailKey } from "@/lib/roles";
 import { RouteTable } from "../route-table";
 import { DependencyMap } from "./canvas";
+import { targetKey, type ExplainTarget, type ExplanationState, type Freshness } from "./explanation-panel";
 import { DetailPane, type Tab } from "./pane";
 
 /**
  * The rail, the centre column and the detail pane share one selection, one
  * hover and one category, so any side can drive the others. Everything here
- * is already in the browser: nothing in this workspace reaches the network.
+ * is already in the browser: nothing in this workspace reaches the network
+ * except the one Explain asks for.
  */
-export function MapWorkspace({ name, result }: { name: string; result: MapData }) {
+export function MapWorkspace(props: {
+  analysisId: string;
+  commitSha: string;
+  name: string;
+  result: MapData;
+  /** Roles the model gave files no convention identified, by path. */
+  modelRoles: Record<string, ModelRole>;
+}) {
+  const { analysisId, name, result } = props;
+  // Explanations fetched on this page, by file or folder, so moving the
+  // selection away and back finds the answer still there without asking again.
+  const [explanations, setExplanations] = useState<ReadonlyMap<string, ExplanationState>>(() => new Map());
+  const [freshness, setFreshness] = useState<ReadonlyMap<string, Freshness>>(() => new Map());
+  const [modelRoles, setModelRoles] = useState<ReadonlyMap<string, ModelRole>>(() => new Map(Object.entries(props.modelRoles)));
+  // The repository's latest commit, asked for once per page load: one answer serves every file.
+  const head = useRef<Promise<HeadResult> | null>(null);
+
+  const explain = useCallback(
+    (target: ExplainTarget) => {
+      const key = targetKey(target);
+      setExplanations((prev) => new Map(prev).set(key, { status: "loading" }));
+      setFreshness((prev) => new Map(prev).set(key, { status: "checking" }));
+
+      void (async () => {
+        let next: ExplanationState;
+        try {
+          const result = await (target.kind === "file" ? explainFileAction(analysisId, target.path) : explainFolderAction(analysisId, target.dir));
+          next = result.ok ? { status: "done", result } : { status: "error", error: result.error };
+          if (result.ok && target.kind === "file" && result.labelled?.role) {
+            const role = result.labelled.role;
+            setModelRoles((prev) => new Map(prev).set(target.path, role));
+          }
+        } catch {
+          // A rejected action would otherwise leave the pane on "Explaining…" for good.
+          next = { status: "error", error: "The request to explain this didn't complete" };
+        }
+        setExplanations((prev) => new Map(prev).set(key, next));
+      })();
+
+      // Alongside the explanation, not in front of it: a cached answer shows
+      // at once, and whether it's current arrives when GitHub answers.
+      void (async () => {
+        let state: Freshness;
+        try {
+          const latest = await (head.current ??= repositoryHeadAction(analysisId));
+          if (!latest.ok) head.current = null;
+          if (!latest.ok) state = { status: "unknown", error: latest.error };
+          else if (latest.head === latest.analysed) state = { status: "current" };
+          else if (target.kind === "group") state = { status: "moved", head: latest.head, file: null };
+          else {
+            const file = await fileAtHeadAction(analysisId, target.path, latest.head);
+            state = file.ok ? { status: "moved", head: latest.head, file: file.state } : { status: "unknown", error: file.error };
+          }
+        } catch {
+          head.current = null;
+          state = { status: "unknown", error: "the request to check didn't complete" };
+        }
+        setFreshness((prev) => new Map(prev).set(key, state));
+      })();
+    },
+    [analysisId],
+  );
+
   const folding = useMemo(() => foldDirectories(result.files), [result.files]);
+  // The rail and the map's category focus count a model's label in its role's
+  // row; the pane keeps it apart from convention's. The parse result itself
+  // never carries one.
+  const railFiles = useMemo(
+    () => result.files.map((f) => (f.role === null && modelRoles.has(f.path) ? { ...f, role: modelRoles.get(f.path) ?? null } : f)),
+    [result.files, modelRoles],
+  );
   // The framework's roles in the taxonomy's fixed order, every one listed even
   // at zero, so each category sits in the same place every time.
   const categories = useMemo(
     () =>
       railCategories(
         result.projects.map((p) => p.adapter),
-        result.files.map((f) => f.role),
+        railFiles.map((f) => f.role),
       ),
-    [result.projects, result.files],
+    [result.projects, railFiles],
   );
   const [selection, setSelection] = useState<Selection>(null);
   const [hover, setHover] = useState<Selection>(null);
@@ -70,7 +148,7 @@ export function MapWorkspace({ name, result }: { name: string; result: MapData }
           {/* The map stays mounted under the table, so switching back keeps its viewport. */}
           <div className={`absolute inset-0 ${centre === "map" ? "" : "invisible"}`}>
             <DependencyMap
-              files={result.files}
+              files={railFiles}
               edges={result.edges}
               folding={folding}
               selection={selection}
@@ -105,6 +183,12 @@ export function MapWorkspace({ name, result }: { name: string; result: MapData }
           onTab={setTab}
           insightsOpen={insightsOpen}
           onInsightsOpen={setInsightsOpen}
+          modelRoles={modelRoles}
+          analysisId={analysisId}
+          commitSha={props.commitSha}
+          explanations={explanations}
+          freshness={freshness}
+          onExplain={explain}
         />
       </aside>
     </>

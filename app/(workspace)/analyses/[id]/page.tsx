@@ -5,6 +5,7 @@ import { CoverageBanner } from "@/components/coverage-banner";
 import { MapWorkspace } from "@/components/map/workspace";
 import { AnalysisProgress } from "@/components/progress/analysis-progress";
 import type { MapData } from "@/lib/map/types";
+import type { ModelRole } from "@/lib/roles";
 import { loadStoredMap } from "@/lib/stored-map";
 import { supabase } from "@/lib/supabase";
 import { ago } from "@/lib/time";
@@ -23,13 +24,19 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
   if (!loaded) notFound();
 
   if (loaded.kind === "map") {
-    const { header, map } = loaded;
+    const { header, map, modelRoles } = loaded;
     return (
       <div className="flex h-full flex-col">
         <AnalysisHeader {...header} />
         <CoverageBanner coverage={map.coverage} />
         <div className="flex min-h-0 flex-1">
-          <MapWorkspace name={`${header.repository.owner}/${header.repository.name}`} result={map} />
+          <MapWorkspace
+            analysisId={header.analysisId}
+            commitSha={header.commitSha}
+            name={`${header.repository.owner}/${header.repository.name}`}
+            result={map}
+            modelRoles={modelRoles}
+          />
         </div>
       </div>
     );
@@ -56,7 +63,7 @@ export default async function AnalysisPage({ params }: PageProps<"/analyses/[id]
 }
 
 type Loaded =
-  | { kind: "map"; header: ComponentProps<typeof AnalysisHeader>; map: MapData }
+  | { kind: "map"; header: ComponentProps<typeof AnalysisHeader>; map: MapData; modelRoles: Record<string, ModelRole> }
   | { kind: "outdated"; header: ComponentProps<typeof AnalysisHeader> }
   | { kind: "progress"; props: ComponentProps<typeof AnalysisProgress> };
 
@@ -81,8 +88,8 @@ async function loadAnalysis(id: string): Promise<Loaded | null> {
   if (data.status === "complete" && data.commit_sha) {
     const header = { analysisId: data.id, repository, commitSha: data.commit_sha };
     if (data.schema_version !== SCHEMA_VERSION) return { kind: "outdated", header };
-    const map = await loadStoredMap(db, { id: data.id, projects: data.detected_projects, coverage: data.coverage });
-    return { kind: "map", header, map };
+    const { map, modelRoles } = await loadStoredMap(db, { id: data.id, projects: data.detected_projects, coverage: data.coverage });
+    return { kind: "map", header, map, modelRoles };
   }
 
   // The clock is read once per request; nothing ticks in the browser.

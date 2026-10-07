@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { rerunAnalysis } from "@/app/(workspace)/actions";
 
-export function RerunButton({ analysisId, onStarted }: { analysisId: string; onStarted: () => void }) {
+export function RerunButton({ analysisId, onStarted, label = "Re-run" }: { analysisId: string; onStarted: () => void; label?: string }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   return (
@@ -29,7 +29,7 @@ export function RerunButton({ analysisId, onStarted }: { analysisId: string; onS
         }
         className="h-6 rounded border border-border px-2 text-xs hover:bg-surface disabled:text-muted"
       >
-        {pending ? "Starting…" : "Re-run"}
+        {pending ? "Starting…" : label}
       </button>
     </span>
   );

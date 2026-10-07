@@ -62,7 +62,11 @@ export async function fetchArchive(repo: Repository) {
   }
 }
 
-async function download({ owner, name }: Repository) {
+/**
+ * The default branch's current commit, read off GitHub's archive redirect, and
+ * where that commit's archive lives. No API, no token.
+ */
+export async function headCommit({ owner, name }: Repository): Promise<{ commit: string; location: string }> {
   const head = await fetch(`https://github.com/${owner}/${name}/archive/HEAD.tar.gz`, {
     redirect: "manual",
     signal: AbortSignal.timeout(REDIRECT_TIMEOUT_MS),
@@ -74,6 +78,22 @@ async function download({ owner, name }: Repository) {
   if (head.status !== 302 || !location || !commit) {
     throw new Error(`GitHub answered ${head.status} without naming a commit for github.com/${owner}/${name}`);
   }
+  return { commit, location };
+}
+
+/** One file's raw bytes at a commit, or null if it isn't there. */
+export async function fileAt({ owner, name }: Repository, commit: string, file: string): Promise<Buffer | null> {
+  const encoded = file.split("/").map(encodeURIComponent).join("/");
+  const res = await fetch(`https://raw.githubusercontent.com/${owner}/${name}/${commit}/${encoded}`, {
+    signal: AbortSignal.timeout(REDIRECT_TIMEOUT_MS),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub answered ${res.status} for ${file} at ${commit.slice(0, 7)}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function download(repo: Repository) {
+  const { commit, location } = await headCommit(repo);
 
   // One signal for the request and the body, so the limit is on the whole download.
   const res = await fetch(location, { signal: AbortSignal.timeout(ARCHIVE_TIMEOUT_MS) });

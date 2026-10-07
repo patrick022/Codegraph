@@ -2,7 +2,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { degrees } from "../parser/graph.ts";
 import { readCoverage, readProjects } from "../parser/io.ts";
-import { ROLE_IDS, type Role } from "./roles.ts";
+import { isModelRole, ROLE_IDS, type ModelRole, type Role } from "./roles.ts";
 import type { Edge, EdgeKind, Route } from "../parser/types.ts";
 import type { Database } from "./database.types.ts";
 import type { MapData } from "./map/types.ts";
@@ -20,12 +20,19 @@ const EDGE_KINDS: readonly EdgeKind[] = ["import", "re-export", "dynamic-import"
  * landing on a stored parsed file. Anything off fails here, by name, instead
  * of drawing a quietly wrong map. Reads with the caller's client, so the
  * policies decide whether any of it comes back.
+ *
+ * A file's role in the map is convention's alone. Roles the model gave come
+ * back separately, so nothing downstream can mistake a label for a fact the
+ * parser established.
  */
-export async function loadStoredMap(db: Db, analysis: { id: string; projects: unknown; coverage: unknown }): Promise<MapData> {
+export async function loadStoredMap(
+  db: Db,
+  analysis: { id: string; projects: unknown; coverage: unknown },
+): Promise<{ map: MapData; modelRoles: Record<string, ModelRole> }> {
   const files = await readAll((from, to) =>
     db
       .from("files")
-      .select("id, path, lines, hash, reached_by, exports, skip_reason, skip_detail, file_roles(role)")
+      .select("id, path, lines, hash, reached_by, exports, skip_reason, skip_detail, file_roles(role, source)")
       .eq("analysis_id", analysis.id)
       .order("id")
       .range(from, to),
@@ -91,12 +98,21 @@ export async function loadStoredMap(db: Db, analysis: { id: string; projects: un
     parsed.map((f) => f.path),
     edges,
   );
-  return {
+  const modelRoles: Record<string, ModelRole> = {};
+  for (const f of parsed) {
+    const row = f.file_roles[0];
+    if (row?.source !== "model") continue;
+    if (!isModelRole(row.role)) throw new Error(`Stored model role ${JSON.stringify(row.role)} of ${f.path} isn't one a model may give`);
+    modelRoles[f.path] = row.role;
+  }
+
+  const map: MapData = {
     projects: readProjects(analysis.projects, "analyses.detected_projects"),
     files: parsed.map((f) => {
       if (f.lines === null || f.hash === null || f.exports === null) throw new Error(`Parsed file ${f.path} is stored without its measurements`);
       // file_id is unique in file_roles, so there's at most one.
-      const role = roleNamed(f.file_roles[0]?.role ?? null, f.path);
+      const row = f.file_roles[0];
+      const role = roleNamed(row?.source === "convention" ? row.role : null, f.path);
       return {
         path: f.path,
         folder: path.posix.dirname(f.path),
@@ -112,6 +128,7 @@ export async function loadStoredMap(db: Db, analysis: { id: string; projects: un
     routes,
     coverage,
   };
+  return { map, modelRoles };
 }
 
 /** A stored role checked against the taxonomy, so a stale or mistyped one fails by name. */
@@ -123,7 +140,7 @@ function roleNamed(stored: string | null, path: string): Role | null {
 }
 
 /** Read every page of a bounded query, in order. */
-async function readAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+export async function readAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await page(from, from + PAGE - 1);

@@ -1,0 +1,8 @@
+minimumReleaseAgeExclude:
+  - '@langchain/managed-deepagents-darwin-arm64@0.9.0 || 0.9.1-dev.2'
+  - '@langchain/managed-deepagents-darwin-x64@0.9.0 || 0.9.1-dev.2'
+  - '@langchain/managed-deepagents-linux-arm64@0.9.0 || 0.9.1-dev.2'
+  - '@langchain/managed-deepagents-linux-x64@0.9.0 || 0.9.1-dev.2'
+  - '@langchain/managed-deepagents-win32-arm64@0.9.0 || 0.9.1-dev.2'
+  - '@langchain/managed-deepagents-win32-x64@0.9.0 || 0.9.1-dev.2'
+  - managed-deepagents@0.9.0 || 0.9.1-dev.2

@@ -8,11 +8,13 @@ import {
   repositoryHeadAction,
   type HeadResult,
 } from "@/app/(workspace)/analyses/[id]/actions";
+import type { AskSelection } from "@/lib/ask";
 import { foldDirectories } from "@/lib/map/fold";
-import type { Selection } from "@/lib/map/view";
+import { groupId, type Selection } from "@/lib/map/view";
 import type { MapData } from "@/lib/map/types";
 import { railCategories, railLabel, type ModelRole, type RailKey } from "@/lib/roles";
 import { RouteTable } from "../route-table";
+import { AskPanel } from "./ask-panel";
 import { DependencyMap } from "./canvas";
 import { targetKey, type ExplainTarget, type ExplanationState, type Freshness } from "./explanation-panel";
 import { DetailPane, type Tab } from "./pane";
@@ -21,7 +23,7 @@ import { DetailPane, type Tab } from "./pane";
  * The rail, the centre column and the detail pane share one selection, one
  * hover and one category, so any side can drive the others. Everything here
  * is already in the browser: nothing in this workspace reaches the network
- * except the one Explain asks for.
+ * except what Explain and Ask send.
  */
 export function MapWorkspace(props: {
   analysisId: string;
@@ -112,6 +114,21 @@ export function MapWorkspace(props: {
   const [insightsOpen, setInsightsOpen] = useState(false);
   // The centre column shows the map or the route table; the rail and the pane keep working on either.
   const [centre, setCentre] = useState<"map" | "routes">("map");
+  // Ask is a mode of the whole pane, not a tab of a selection: a question about
+  // the repository isn't about what's selected, and leaving Ask returns to the
+  // selection exactly as it was.
+  const [paneMode, setPaneMode] = useState<"overview" | "ask">("overview");
+  const isPath = useMemo(() => {
+    const paths = new Set(result.files.map((f) => f.path));
+    return (p: string) => paths.has(p);
+  }, [result.files]);
+  const selectedGroup = selection?.kind === "group" ? folding.groups.find((g) => groupId(g.dir) === selection.id) : undefined;
+  const askSelection: AskSelection =
+    selection?.kind === "file" ? { kind: "file", path: selection.path } : selectedGroup ? { kind: "folder", path: selectedGroup.dir } : null;
+  /** A file hovered on the map, or a folded node holding it, marked as the pane marks it. */
+  const hovered = (path: string) =>
+    (hover?.kind === "file" && hover.path === path) ||
+    (hover?.kind === "group" && hover.id === groupId(folding.groupOf.get(path) ?? ""));
 
   // Fixed widths on the side columns: their content must never push the map around.
   return (
@@ -171,25 +188,35 @@ export function MapWorkspace(props: {
         </div>
       </section>
       <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-surface" aria-label="Details">
-        <DetailPane
-          name={name}
-          result={result}
-          folding={folding}
-          selection={selection}
-          onSelect={setSelection}
-          hover={hover}
-          onHover={setHover}
-          tab={tab}
-          onTab={setTab}
-          insightsOpen={insightsOpen}
-          onInsightsOpen={setInsightsOpen}
-          modelRoles={modelRoles}
-          analysisId={analysisId}
-          commitSha={props.commitSha}
-          explanations={explanations}
-          freshness={freshness}
-          onExplain={explain}
-        />
+        <div role="tablist" className="flex h-7 shrink-0 items-end gap-3 border-b border-border px-3 text-[11px]">
+          <CentreTab label="Overview" on={paneMode === "overview"} onClick={() => setPaneMode("overview")} />
+          <CentreTab label="Ask" on={paneMode === "ask"} onClick={() => setPaneMode("ask")} />
+        </div>
+        {/* Both stay mounted, so switching keeps the conversation and the pane's place. */}
+        <div className={paneMode === "ask" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <AskPanel analysisId={analysisId} selected={askSelection} isPath={isPath} paths={{ onSelect: setSelection, onHover: setHover, hovered }} />
+        </div>
+        <div className={paneMode === "overview" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <DetailPane
+            name={name}
+            result={result}
+            folding={folding}
+            selection={selection}
+            onSelect={setSelection}
+            hover={hover}
+            onHover={setHover}
+            tab={tab}
+            onTab={setTab}
+            insightsOpen={insightsOpen}
+            onInsightsOpen={setInsightsOpen}
+            modelRoles={modelRoles}
+            analysisId={analysisId}
+            commitSha={props.commitSha}
+            explanations={explanations}
+            freshness={freshness}
+            onExplain={explain}
+          />
+        </div>
       </aside>
     </>
   );

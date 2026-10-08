@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The agent's generated build output.
+    "codegraph-agent/.mda/**",
   ]),
 ]);
 

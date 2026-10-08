@@ -35,7 +35,7 @@ type PaneProps = {
   onExplain: (target: ExplainTarget) => void;
 };
 
-type PathActions = Pick<PaneProps, "onSelect" | "onHover"> & { hovered: (path: string) => boolean };
+export type PathActions = Pick<PaneProps, "onSelect" | "onHover"> & { hovered: (path: string) => boolean };
 
 /** Show repository, file, or folder details for the current selection with shared path interactions. */
 export function DetailPane(props: PaneProps) {
@@ -603,7 +603,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 
 // A path inside an explanation's prose. It acts like every other path in the
 // pane, just set inline.
-function InlinePath({ path, paths }: { path: string; paths: PathActions }) {
+export function InlinePath({ path, paths }: { path: string; paths: PathActions }) {
   return (
     <button
       type="button"

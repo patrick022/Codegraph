@@ -21,6 +21,13 @@
   --kind-2: light-dark(#db2777, #f472b6);
   --kind-3: light-dark(#0891b2, #22d3ee);
   --kind-4: light-dark(#78716c, #a8a29e);
+  /* The landing page's background grid only. Never on the canvas, where
+     colour carries meaning; kept clear of the direction green and amber. */
+  --neon-1: light-dark(#00b8d9, #00f0ff);
+  --neon-2: light-dark(#e000c8, #ff2bf1);
+  --neon-3: light-dark(#8a3dff, #a970ff);
+  --neon-4: light-dark(#1f6bff, #3d8bff);
+  --neon-5: light-dark(#ff1f5a, #ff4d7d);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -46,4 +53,70 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-size: 13px;
+}
+
+/* The landing page is the one place anything moves on its own. Reduced motion
+   leaves it still: the hero shows its first selection, the grid's cells stay empty. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Hero selections take turns through one 12s cycle. */
+  .cg-variant {
+    animation: cg-variant 12s infinite both;
+  }
+  .cg-variant-edge {
+    stroke-dasharray: 1;
+    animation: cg-variant-edge 12s infinite both;
+  }
+  .cg-cycle-edge {
+    stroke-dasharray: 1;
+    animation: cg-cycle-edge 9s infinite both;
+  }
+  .cg-cell {
+    animation: cg-cell ease-in-out infinite both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cg-variant-rest {
+    display: none;
+  }
+}
+@keyframes cg-variant {
+  0% { opacity: 0; }
+  2%, 30% { opacity: 1; }
+  33%, 100% { opacity: 0; }
+}
+@keyframes cg-variant-edge {
+  0% { stroke-dashoffset: 1; }
+  7%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes cg-cycle-edge {
+  0% { stroke-dashoffset: 1; opacity: 1; }
+  15%, 80% { stroke-dashoffset: 0; opacity: 1; }
+  92%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* Grid lines in the border token, one strip per side, anchored to its own
+   edge so the cells line up with it, and fading toward the content. */
+.cg-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.cg-grid-left {
+  mask-image: linear-gradient(to right, #000 30%, transparent);
+}
+.cg-grid-right {
+  background-position: right top;
+  mask-image: linear-gradient(to left, #000 30%, transparent);
+}
+/* A cell is lit for a short part of its cycle and empty the rest. */
+.cg-cell {
+  opacity: 0;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+}
+@keyframes cg-cell {
+  0%, 100% { opacity: 0; }
+  12% { opacity: 0.28; }
+  30% { opacity: 0; }
 }

@@ -14,7 +14,8 @@
     "insights": "node scripts/insights.ts",
     "eval:paths": "node evals/paths.ts",
     "eval:roles": "node evals/roles.ts",
-    "eval:prompts": "node evals/prompts.ts"
+    "eval:prompts": "node evals/prompts.ts",
+    "agent-check": "node scripts/agent-check.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.10",

@@ -13,3 +13,11 @@ export function supabase() {
     accessToken: async () => (await auth()).getToken(),
   });
 }
+
+// The same client with the agent's credential in place of a session: no
+// signed-in user, and the policies narrow it to the one analysis it names.
+export function supabaseForAgent(credential: string) {
+  return createClient<Database>(env.supabaseUrl, env.supabasePublishableKey, {
+    accessToken: async () => credential,
+  });
+}

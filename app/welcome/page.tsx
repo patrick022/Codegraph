@@ -233,7 +233,8 @@ function Prose({ children }: { children: ReactNode }) {
 
 /**
  * A plain GET form: the visitor isn't signed in, so there's no session to run
- * an action under. The handler holds the repository through sign-in.
+ * an action under. The handler holds the repository through sign-in, and the
+ * dashboard's form opens with it filled in.
  */
 function RepositoryField() {
   return (
@@ -246,8 +247,9 @@ function RepositoryField() {
           spellCheck={false}
           placeholder="github.com/owner/repo"
           aria-label="Public GitHub repository URL"
-          // The same shape the server accepts, so a mistake is caught before sign-in.
-          pattern="\s*(https?://)?(www\.)?github\.com/[^\/\s]+/[^\/\s]+.*"
+          // The owner and name rules parseRepositoryUrl applies, so a mistake is
+          // caught before sign-in rather than after.
+          pattern="\s*(https?://)?(www\.)?github\.com/[A-Za-z0-9][A-Za-z0-9\-]{0,38}/[A-Za-z0-9._\-]{1,100}([\/?#].*)?\s*"
           title="A GitHub repository URL, like github.com/owner/repo"
           className="h-9 min-w-0 flex-1 rounded border border-border bg-surface px-3 font-mono text-[13px] outline-none placeholder:text-muted focus:border-accent"
         />
@@ -255,7 +257,7 @@ function RepositoryField() {
           Map this repository
         </button>
       </div>
-      <p className="mt-2 text-xs text-muted">You&apos;ll sign in before the map is drawn.</p>
+      <p className="mt-2 text-xs text-muted">You&apos;ll sign in, then confirm the repository.</p>
     </form>
   );
 }

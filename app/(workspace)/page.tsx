@@ -1,7 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
 import { AnalysisRow, type RowData } from "@/components/progress/analysis-row";
 import { StateMark } from "@/components/state-mark";
 import { SubmitForm } from "@/components/submit-form";
+import { PENDING_REPO } from "@/lib/pending-repo";
 import { supabase } from "@/lib/supabase";
 import { ago } from "@/lib/time";
 import { isStale, progressOf, type Status } from "@/pipeline/stages";
@@ -14,6 +16,7 @@ export default async function DashboardPage() {
   // Read off the token, never fetched from Clerk.
   const { orgId, sessionClaims } = await auth();
   const rows = await loadAnalyses();
+  const pending = (await cookies()).get(PENDING_REPO)?.value;
 
   const counts = new Map<Status, number>();
   for (const r of rows) counts.set(r.progress.status, (counts.get(r.progress.status) ?? 0) + 1);
@@ -27,7 +30,7 @@ export default async function DashboardPage() {
             ? `Latest ${LIST_LIMIT} analyses`
             : `${rows.length} ${rows.length === 1 ? "analysis" : "analyses"}`}
         </span>
-        <SubmitForm />
+        <SubmitForm defaultUrl={pending ? `github.com/${pending}` : undefined} />
         {rows.length > 0 && (
           // As rendered; each row below follows its own run live.
           <ul className="ml-auto flex items-center gap-3 text-xs text-muted tabular-nums">

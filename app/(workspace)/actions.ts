@@ -1,12 +1,14 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { PENDING_REPO } from "@/lib/pending-repo";
 import { supabaseSecret } from "@/lib/supabase-secret";
-import { analyseRepository, start } from "@/lib/start-analysis";
 import { parseRepositoryUrl } from "@/pipeline/archive";
-import { claimAnalysis } from "@/pipeline/run";
+import { claimAnalysis, runAnalysis, submitRepository, type ClaimedRun } from "@/pipeline/run";
 
 export type FormState = { error: string | null };
 
@@ -22,7 +24,16 @@ export async function submitAnalysis(_previous: FormState, form: FormData): Prom
   const repo = typeof url === "string" ? parseRepositoryUrl(url) : null;
   if (!repo) return { error: "That isn't a GitHub repository URL; expected github.com/owner/name" };
 
-  redirect(`/analyses/${await analyseRepository(orgId, repo)}`);
+  // Whatever the landing page held has now been confirmed or replaced.
+  (await cookies()).delete(PENDING_REPO);
+  const db = supabaseSecret();
+  const { analysisId, created } = await submitRepository(db, orgId, repo);
+  if (created) {
+    // Claimed before responding, so the page it lands on already says it started.
+    const claimed = await claimAnalysis(db, analysisId);
+    if (claimed) start(claimed);
+  }
+  redirect(`/analyses/${analysisId}`);
 }
 
 /** Re-running is only ever this: a deliberate act from the analysis itself. */
@@ -41,4 +52,18 @@ export async function rerunAnalysis(analysisId: string): Promise<FormState> {
   if (!claimed) return { error: "It's already running" };
   start(claimed);
   return { error: null };
+}
+
+/**
+ * The run outlives the response. It records its own failure on the row; this
+ * only makes sure nothing is lost if even that fails.
+ */
+function start(claimed: ClaimedRun): void {
+  after(async () => {
+    try {
+      await runAnalysis(supabaseSecret(), claimed);
+    } catch (e) {
+      console.error(`Analysis ${claimed.analysisId} failed:`, e);
+    }
+  });
 }

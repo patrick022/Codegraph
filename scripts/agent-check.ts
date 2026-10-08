@@ -117,6 +117,8 @@ for (const table of ["files", "edges", "routes", "insights"] as const) {
 }
 const cache = await db.from("ai_cache").select("id", { count: "exact", head: true });
 check(cache.count === 0, "ai_cache: nothing", cache.error?.message ?? `${cache.count} row(s)`);
+const organizations = await db.from("organizations").select("id", { count: "exact", head: true });
+check(organizations.count === 0, "organizations: nothing", organizations.error?.message ?? `${organizations.count} row(s)`);
 
 console.log(failed === 0 ? "\nAll checks passed." : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

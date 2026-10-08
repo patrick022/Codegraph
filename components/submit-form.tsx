@@ -5,12 +5,14 @@ import { submitAnalysis, type FormState } from "@/app/(workspace)/actions";
 
 const INITIAL: FormState = { error: null };
 
-export function SubmitForm() {
+/** `defaultUrl` is a repository pasted on the landing page, waiting to be confirmed. */
+export function SubmitForm({ defaultUrl }: { defaultUrl?: string }) {
   const [state, action, pending] = useActionState(submitAnalysis, INITIAL);
   return (
     <form action={action} className="flex min-w-0 items-center gap-2">
       <input
         name="url"
+        defaultValue={defaultUrl}
         required
         autoComplete="off"
         spellCheck={false}

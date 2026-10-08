@@ -1,9 +1,11 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { PENDING_REPO } from "@/lib/pending-repo";
 import { supabaseSecret } from "@/lib/supabase-secret";
 import { parseRepositoryUrl } from "@/pipeline/archive";
 import { claimAnalysis, runAnalysis, submitRepository, type ClaimedRun } from "@/pipeline/run";
@@ -24,6 +26,9 @@ export async function submitAnalysis(_previous: FormState, form: FormData): Prom
 
   const db = supabaseSecret();
   const { analysisId, created } = await submitRepository(db, orgId, repo);
+  // Whatever the landing page held has now been confirmed or replaced. Only
+  // after it's saved, so a failed submit leaves the form still filled in.
+  (await cookies()).delete(PENDING_REPO);
   if (created) {
     // Claimed before responding, so the page it lands on already says it started.
     const claimed = await claimAnalysis(db, analysisId);

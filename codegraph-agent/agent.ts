@@ -12,7 +12,7 @@ const lookupsOnly = createMiddleware({
   name: "LookupsOnly",
   wrapModelCall: (request, handler) => {
     const names = new Set<string>(lookups.map((t) => t.name));
-    return handler({ ...request, tools: request.tools.filter((t) => names.has(String(Reflect.get(t, "name")))) });
+    return handler({ ...request, tools: request.tools.filter((t) => "name" in t && typeof t.name === "string" && names.has(t.name)) });
   },
 });
 

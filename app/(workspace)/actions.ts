@@ -24,10 +24,11 @@ export async function submitAnalysis(_previous: FormState, form: FormData): Prom
   const repo = typeof url === "string" ? parseRepositoryUrl(url) : null;
   if (!repo) return { error: "That isn't a GitHub repository URL; expected github.com/owner/name" };
 
-  // Whatever the landing page held has now been confirmed or replaced.
-  (await cookies()).delete(PENDING_REPO);
   const db = supabaseSecret();
   const { analysisId, created } = await submitRepository(db, orgId, repo);
+  // Whatever the landing page held has now been confirmed or replaced. Only
+  // after it's saved, so a failed submit leaves the form still filled in.
+  (await cookies()).delete(PENDING_REPO);
   if (created) {
     // Claimed before responding, so the page it lands on already says it started.
     const claimed = await claimAnalysis(db, analysisId);

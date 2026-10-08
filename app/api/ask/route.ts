@@ -4,6 +4,7 @@ import { relay, serverSentEvents, text } from "@/lib/agent-events";
 import type { AskEvent } from "@/lib/ask";
 import { env } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
+import { SCHEMA_VERSION } from "@/parser/types";
 
 // The one way into the agent. It proves the asker can read the analysis,
 // mints that analysis's credential, opens or continues a conversation, and
@@ -26,10 +27,15 @@ export async function POST(req: NextRequest) {
 
   // Read with the member's own token: if the policies don't return the row,
   // they can't ask about it. The organization comes off that row, never input.
-  const { data, error } = await supabase().from("analyses").select("id, organization_id, status").eq("id", analysisId).maybeSingle();
+  const { data, error } = await supabase().from("analyses").select("id, organization_id, status, schema_version").eq("id", analysisId).maybeSingle();
   if (error) throw new Error(`Couldn't load analysis: ${error.message}`);
   if (!data) return Response.json({ error: "Analysis not found" }, { status: 404 });
   if (data.status !== "complete") return Response.json({ error: "The analysis isn't complete yet" }, { status: 409 });
+  // Every lookup would refuse an older parser's analysis, so say so before
+  // starting a run that could only fail.
+  if (data.schema_version !== SCHEMA_VERSION) {
+    return Response.json({ error: "This analysis was stored by an older parser. Re-run it to ask about it." }, { status: 409 });
+  }
   const owner = { analysis_id: data.id, organization_id: data.organization_id };
   const credential = mintAgentCredential({ analysisId: data.id, organizationId: data.organization_id });
 
